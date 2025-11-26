@@ -35,6 +35,7 @@ from yail_gen import initialize_gen_config, OPENAI_AVAILABLE, GEMINI_AVAILABLE
 from yail_camera import init_camera, shutdown_camera, PYGAME_AVAILABLE
 from yail_server_state import server_state
 from yail_client_handler import handle_client_connection
+from yail_resource_manager import resource_manager
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, 
@@ -223,6 +224,10 @@ def main():
 
     # Validate configuration
     validate_configuration()
+
+    # Clean up old resources
+    logger.info("Cleaning up old resources...")
+    resource_manager.cleanup_generated_images(max_age_hours=24)
 
     # Initialize image generation configuration
     logger.info("Initializing image generation configuration...")
