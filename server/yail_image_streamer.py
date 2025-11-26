@@ -177,7 +177,7 @@ def stream_random_image_from_files(client_socket: socket.socket, gfx_mode: int) 
 
 
 def stream_generated_image(client_socket: socket.socket, prompt: str, 
-                          gfx_mode: int) -> None:
+                          gfx_mode: int, model: str = None) -> None:
     """
     Generate an image with the configured model and stream it to the client.
     
@@ -185,11 +185,12 @@ def stream_generated_image(client_socket: socket.socket, prompt: str,
         client_socket: The client socket to stream to
         prompt: The text prompt for image generation
         gfx_mode: The graphics mode to use
+        model: Optional model name to override configuration
     """
-    logger.info(f"Generating image with prompt: '{prompt}'")
+    logger.info(f"Generating image with prompt: '{prompt}' model: {model}")
     
     # Generate image using the configured model
-    url_or_path = generate_image(prompt)
+    url_or_path = generate_image(prompt, model=model)
     
     if url_or_path:
         # Stream the generated image to the client

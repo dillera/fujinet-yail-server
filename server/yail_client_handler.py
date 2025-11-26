@@ -24,7 +24,7 @@ from yail_image_streamer import (
 from yail_image_converter import convertImageToYAIL, GRAPHICS_8
 from yail_camera import capture_camera_image
 from yail_server_state import server_state
-from yail_gen import gen_config
+import yail_gen
 
 logger = logging.getLogger(__name__)
 
@@ -159,22 +159,29 @@ class ClientHandler:
         self.context.set_mode('generate')
         command = self.context.tokens[0]
         
-        if command.startswith('gen') and len(self.context.tokens) > 1 and command != 'gen-gemini':
-            # Format: gen <model> <prompt...>
-            ai_model_name = self.context.tokens[1]
-            prompt = self.parser.extract_prompt(self.context.tokens, 2)
-            logger.info(f"{self.thread_id} Received {command} model={ai_model_name} prompt={prompt}")
-        else:
-            # Format: gen <prompt...> or gen-gemini <prompt...>
-            prompt = self.parser.extract_prompt(self.context.tokens)
-            logger.info(f"{self.thread_id} Received {command} {prompt}")
+        prompt_start_index = 1
+        ai_model_name = None
+        
+        # Check if the second token is a model name
+        if len(self.context.tokens) > 1:
+            potential_model = self.context.tokens[1]
+            # Ensure config is initialized
+            if yail_gen.gen_config is None:
+                yail_gen.initialize_gen_config()
+                
+            if yail_gen.gen_config and yail_gen.gen_config.is_valid_model(potential_model):
+                ai_model_name = potential_model
+                prompt_start_index = 2
+        
+        prompt = self.parser.extract_prompt(self.context.tokens, prompt_start_index)
+        logger.info(f"{self.thread_id} Received {command} prompt={prompt} model={ai_model_name}")
         
         server_state.set_last_prompt(prompt)
         
         if command == 'gen-gemini':
             stream_generated_image_gemini(self.client_socket, prompt, self.context.gfx_mode)
         else:
-            stream_generated_image(self.client_socket, prompt, self.context.gfx_mode)
+            stream_generated_image(self.client_socket, prompt, self.context.gfx_mode, model=ai_model_name)
         
         self.context.reset_tokens()
     
@@ -219,47 +226,53 @@ class ClientHandler:
         """Handle openai-config command."""
         self.context.tokens.pop(0)
         
+        # Ensure config is initialized
+        if yail_gen.gen_config is None:
+            yail_gen.initialize_gen_config()
+        
+        config = yail_gen.gen_config
+        
         if len(self.context.tokens) == 0:
-            send_client_response(self.client_socket, f"Current OpenAI config: {gen_config}")
+            send_client_response(self.client_socket, f"Current OpenAI config: {config}")
             return
         
         param, value = self.parser.extract_config_param(self.context.tokens)
         
         if param is None:
-            send_client_response(self.client_socket, f"Current OpenAI config: {gen_config}")
+            send_client_response(self.client_socket, f"Current OpenAI config: {config}")
             return
         
         if value is None:
-            send_client_response(self.client_socket, f"Current OpenAI config: {gen_config}")
+            send_client_response(self.client_socket, f"Current OpenAI config: {config}")
             return
         
         # Process configuration
         if param == "model":
-            if gen_config.set_model(value):
+            if config.set_model(value):
                 send_client_response(self.client_socket, f"OpenAI model set to {value}")
             else:
                 send_client_response(self.client_socket, "Invalid model", is_error=True)
         
         elif param == "size":
-            if gen_config.set_size(value):
+            if config.set_size(value):
                 send_client_response(self.client_socket, f"Image size set to {value}")
             else:
                 send_client_response(self.client_socket, "Invalid size", is_error=True)
         
         elif param == "quality":
-            if gen_config.set_quality(value):
+            if config.set_quality(value):
                 send_client_response(self.client_socket, f"Image quality set to {value}")
             else:
                 send_client_response(self.client_socket, "Invalid quality", is_error=True)
         
         elif param == "style":
-            if gen_config.set_style(value):
+            if config.set_style(value):
                 send_client_response(self.client_socket, f"Image style set to {value}")
             else:
                 send_client_response(self.client_socket, "Invalid style", is_error=True)
         
         elif param == "system_prompt":
-            gen_config.set_system_prompt(value)
+            config.set_system_prompt(value)
             send_client_response(self.client_socket, f"System prompt set to {value}")
         
         else:

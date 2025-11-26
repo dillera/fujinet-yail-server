@@ -4,6 +4,29 @@ YAIL Image Converter Module
 
 Handles all image format conversion for Atari graphics modes.
 Converts images to YAIL binary format for streaming to Atari clients.
+
+Supported Atari Graphics Modes:
+- GRAPHICS_8 (mode 2): Black & white dithered (320x220 pixels)
+  Uses Floyd-Steinberg dithering to convert images to 1-bit black & white
+  Data is packed with 8 pixels per byte for efficient transmission
+
+- GRAPHICS_9 (mode 4): 16-color grayscale (320x220 pixels)
+  Uses 16-level grayscale palette with Floyd-Steinberg dithering
+  Data is packed with 2 pixels per byte (4 bits per pixel)
+
+- VBXE (mode 16): 256-color palette (320x240 pixels)
+  Uses Video Board Extended (VBXE) 256-color palette mode
+  Includes full RGB palette (768 bytes) + indexed image data
+  Palette entries are offset by 1 to allow transparency (entry 0 reserved)
+
+Binary Format Specifications:
+- GRAPHICS_8/9: Simple format with version, mode, size, and image data
+- VBXE: Complex format with version, mode, palette block, and image block
+
+Performance Notes:
+- Uses optimized PIL/Pillow operations for image processing
+- LANCZOS resampling for high quality, BILINEAR for speed
+- Efficient numpy operations for bit packing and data manipulation
 """
 
 import logging
@@ -289,7 +312,7 @@ def createErrorPacket(error_message: str, gfx_mode: int) -> bytearray:
     error_packets += struct.pack("<B", 1)                  # number of memory blocks
     error_packets += bytes([ERROR_BLOCK])                  # Memory block type
     error_packets += struct.pack("<I", len(error_message)) # error message size
-    error_packets += bytearray(error_message)              # error
+    error_packets += error_message.encode('utf-8')         # error
 
     return error_packets
 

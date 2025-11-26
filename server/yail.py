@@ -25,7 +25,9 @@ import argparse
 import logging
 import socket
 import signal
+import time
 from typing import List, Union, Callable
+from functools import wraps
 from threading import Thread
 
 # Import modular components
@@ -38,6 +40,23 @@ from yail_client_handler import handle_client_connection
 logging.basicConfig(level=logging.INFO, 
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+
+def log_performance(func):
+    """Decorator to log function execution time."""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        try:
+            result = func(*args, **kwargs)
+            elapsed = time.time() - start
+            logger.info(f"{func.__name__} completed in {elapsed:.2f}s")
+            return result
+        except Exception as e:
+            elapsed = time.time() - start
+            logger.error(f"{func.__name__} failed after {elapsed:.2f}s: {e}")
+            raise
+    return wrapper
 
 # Constants
 BIND_IP = '0.0.0.0'
@@ -78,6 +97,42 @@ def add_filename_callback(file_path: str) -> None:
     """Callback to add a filename to server state."""
     logger.info(f"Processing file: {file_path}")
     server_state.add_filename(file_path)
+
+
+def validate_configuration():
+    """
+    Validate that required configuration is present.
+    Exit with clear error if missing.
+    """
+    issues = []
+    
+    # Check for image generation API keys
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    
+    if not openai_key and not gemini_key:
+        issues.append("Neither OPENAI_API_KEY nor GEMINI_API_KEY is set")
+    
+    # Check for model configuration
+    gen_model = os.environ.get("GEN_MODEL", "dall-e-3")
+    
+    if "dall-e" in gen_model.lower() and not openai_key:
+        issues.append(f"Model {gen_model} requires OPENAI_API_KEY")
+    
+    if "gemini" in gen_model.lower() and not gemini_key:
+        issues.append(f"Model {gen_model} requires GEMINI_API_KEY")
+    
+    if issues:
+        logger.error("Configuration validation failed:")
+        for issue in issues:
+            logger.error(f"  - {issue}")
+        logger.error("\nPlease set the required environment variables:")
+        logger.error("  export OPENAI_API_KEY=your_key_here")
+        logger.error("  export GEMINI_API_KEY=your_key_here")
+        logger.error("\nOr create a server/env file with the configuration.")
+        sys.exit(1)
+    
+    logger.info("Configuration validation passed")
 
 
 def main():
@@ -165,6 +220,9 @@ def main():
     logger.info(f"  OPENAI_API_KEY: {'Set' if os.environ.get('OPENAI_API_KEY') else 'Not set'}")
     logger.info(f"  GEMINI_API_KEY: {'Set' if os.environ.get('GEMINI_API_KEY') else 'Not set'}")
     logger.info(f"  GEN_MODEL: {os.environ.get('GEN_MODEL', 'Not set (default: dall-e-3)')}")
+
+    # Validate configuration
+    validate_configuration()
 
     # Initialize image generation configuration
     logger.info("Initializing image generation configuration...")
