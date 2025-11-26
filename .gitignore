@@ -83,6 +83,7 @@ celerybeat-schedule
 .venv
 env/
 venv/
+penv/                           # Python virtual environment (local deployment)
 ENV/
 env.bak/
 venv.bak/
@@ -122,3 +123,6 @@ env
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# YAIL Generated Files
+generated_images/

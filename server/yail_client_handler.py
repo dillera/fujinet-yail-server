@@ -64,7 +64,7 @@ class ClientHandler:
         logger.info(f'Starting Connection: {connection_count}')
         
         try:
-            self.client_socket.settimeout(30)  # 30 seconds timeout
+            self.client_socket.settimeout(120)  # 120 seconds timeout
             
             while not self.done:
                 self._process_request()

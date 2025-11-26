@@ -8,7 +8,7 @@ google-generativeai>=0.3.0
 requests>=2.31.0
 
 # Search and utilities
-duckduckgo-search>=3.9.0
+ddgs>=4.0.0
 fastcore>=1.5.0
 
 # Media and UI

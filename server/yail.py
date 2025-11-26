@@ -220,6 +220,7 @@ def main():
     logger.info("Environment Configuration:")
     logger.info(f"  OPENAI_API_KEY: {'Set' if os.environ.get('OPENAI_API_KEY') else 'Not set'}")
     logger.info(f"  GEMINI_API_KEY: {'Set' if os.environ.get('GEMINI_API_KEY') else 'Not set'}")
+    logger.info(f"  BRAVE_API_KEY: {'Set' if os.environ.get('BRAVE_API_KEY') else 'Not set'}")
     logger.info(f"  GEN_MODEL: {os.environ.get('GEN_MODEL', 'Not set (default: dall-e-3)')}")
 
     # Validate configuration

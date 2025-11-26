@@ -19,6 +19,18 @@ VBXE = 16
 
 VALID_GRAPHICS_MODES = [GRAPHICS_8, GRAPHICS_9, GRAPHICS_11, VBXE]
 
+# Mapping from user-friendly Atari mode numbers to internal YAIL constants
+# Users expect "gfx 8" to give them Graphics 8 (which is internal mode 2)
+GRAPHICS_MODE_MAP = {
+    '8': GRAPHICS_8,   # Atari Mode 8 -> YAIL Mode 2
+    '9': GRAPHICS_9,   # Atari Mode 9 -> YAIL Mode 4
+    '11': GRAPHICS_11, # Atari Mode 11 -> YAIL Mode 8
+    'vbxe': VBXE,      # VBXE -> YAIL Mode 16
+    '2': GRAPHICS_8,   # Internal ID support
+    '4': GRAPHICS_9,   # Internal ID support
+    '16': VBXE         # Internal ID support
+}
+
 
 class CommandValidator:
     """Validates client commands before processing."""
@@ -65,15 +77,13 @@ class CommandValidator:
         if len(tokens) < 2:
             return False, "gfx command requires a graphics mode"
         
-        try:
-            mode = int(tokens[1])
-            if mode not in VALID_GRAPHICS_MODES:
-                valid_modes = ', '.join(map(str, VALID_GRAPHICS_MODES))
-                return False, f"Invalid graphics mode: {mode}. Valid modes: {valid_modes}"
+        mode_str = tokens[1].lower()
+        if mode_str in GRAPHICS_MODE_MAP:
             return True, None
-        except ValueError:
-            return False, f"Graphics mode must be an integer, got: {tokens[1]}"
-    
+            
+        valid_modes = ', '.join(sorted(GRAPHICS_MODE_MAP.keys()))
+        return False, f"Invalid graphics mode: {tokens[1]}. Valid modes: {valid_modes}"
+
     @staticmethod
     def validate_config_command(tokens: List[str]) -> Tuple[bool, Optional[str]]:
         """Validate 'openai-config' command."""
@@ -185,7 +195,14 @@ class CommandParser:
         Returns:
             Joined prompt string
         """
-        return ' '.join(tokens[start_index:])
+        prompt = ' '.join(tokens[start_index:])
+        # Strip surrounding quotes if present
+        if len(prompt) >= 2 and prompt.startswith('"') and prompt.endswith('"'):
+            return prompt[1:-1]
+        # Strip trailing quote if start quote is missing (heuristic for some clients)
+        if prompt.endswith('"') and not prompt.startswith('"'):
+             return prompt.rstrip('"')
+        return prompt
     
     def extract_graphics_mode(self, tokens: List[str]) -> Optional[int]:
         """
@@ -197,16 +214,17 @@ class CommandParser:
         Returns:
             Graphics mode or None if invalid
         """
-        if len(tokens) < 2:
+        if not tokens:
             return None
+            
+        # If len >= 2, assume ['gfx', 'mode'] format
+        # If len == 1, assume ['mode'] format (if command was popped)
+        mode_token = tokens[1] if len(tokens) >= 2 else tokens[0]
         
-        try:
-            mode = int(tokens[1])
-            if mode in VALID_GRAPHICS_MODES:
-                return mode
-        except ValueError:
-            pass
-        
+        mode_str = mode_token.lower()
+        if mode_str in GRAPHICS_MODE_MAP:
+            return GRAPHICS_MODE_MAP[mode_str]
+            
         return None
     
     def extract_config_param(self, tokens: List[str]) -> Tuple[Optional[str], Optional[str]]:
