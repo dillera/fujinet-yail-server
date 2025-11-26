@@ -89,7 +89,7 @@ def prep_image_for_vbxe(image: Image.Image, target_width: int = YAIL_W,
         new_height = target_height
 
     # Resize the image
-    image = image.resize((new_width, new_height), Image.BILINEAR)
+    image = image.resize((new_width, new_height), Image.LANCZOS)
     logger.info(f'Image new size: {image.size}')
 
     # Create a new image with the target size and a black background
@@ -342,7 +342,10 @@ def convertImageToYAIL(image: Image.Image, gfx_mode: int) -> bytearray:
     if gfx_mode == GRAPHICS_8 or gfx_mode == GRAPHICS_9:
         gray = image.convert(mode='L')
         gray = fix_aspect(gray)
-        gray = gray.resize((YAIL_W, YAIL_H), Image.LANCZOS)
+        
+        # Use faster interpolation for 1-bit graphics, high quality for grayscale
+        resample_filter = Image.BILINEAR if gfx_mode == GRAPHICS_8 else Image.LANCZOS
+        gray = gray.resize((YAIL_W, YAIL_H), resample_filter)
 
         logger.debug(f'Processed Image size: {image.size}')
         logger.debug(f'Processed Image mode: {image.mode}')

@@ -24,6 +24,7 @@ from yail_image_converter import convertImageToYAIL, createErrorPacket
 from yail_gen import generate_image, generate_image_with_gemini
 from yail_camera import capture_camera_image
 from yail_server_state import server_state
+from yail_image_cache import image_cache
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,24 @@ def stream_YAI(client: socket.socket, gfx_mode: int, url: str = None,
         True if successful, False otherwise
     """
     try:
+        # Generate cache key
+        source_key = url if url else filepath
+        if not source_key:
+            return False
+            
+        cache_key = f"{source_key}_{gfx_mode}"
+        
+        # Check cache
+        cached_data = image_cache.get(cache_key)
+        if cached_data:
+            try:
+                logger.info(f"Cache hit for {cache_key}")
+                client.sendall(cached_data)
+                return True
+            except Exception as e:
+                logger.error(f"Error sending cached data: {e}")
+                return False
+
         if url is not None:
             logger.info(f'Loading {url}')
 
@@ -90,6 +109,9 @@ def stream_YAI(client: socket.socket, gfx_mode: int, url: str = None,
             image = Image.open(filepath)
 
         image_yai = convertImageToYAIL(image, gfx_mode)
+        
+        # Cache the result
+        image_cache.put(cache_key, image_yai)
 
         client.sendall(image_yai)
 
@@ -100,7 +122,7 @@ def stream_YAI(client: socket.socket, gfx_mode: int, url: str = None,
         return False
 
 
-def search_images(term: str, max_images: int = 100) -> List[str]:
+def search_images(term: str, max_images: int = 50) -> List[str]:
     """
     Search for images using DuckDuckGo.
     
