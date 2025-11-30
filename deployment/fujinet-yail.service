@@ -3,13 +3,11 @@ Description=FujiNet YAIL Server
 After=network.target
 
 [Service]
-# Set this to the directory where yail.py is located
-Environment="YAIL_ROOT=/opt/fujinet-yail-server/server"
 Type=simple
 User=fujinet
-WorkingDirectory=${YAIL_ROOT}
-# Use the Python interpreter from the virtual environment
-ExecStart=/bin/bash -c 'source ${YAIL_ROOT}/venv/bin/activate && python ${YAIL_ROOT}/yail.py'
+WorkingDirectory=/opt/fujinet-yail-server/server
+# Use the Python interpreter from the virtual environment directly
+ExecStart=/opt/fujinet-yail-server/server/venv/bin/python yail.py
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

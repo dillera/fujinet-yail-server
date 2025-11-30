@@ -98,8 +98,8 @@ install_service() {
   # Set proper permissions
   chmod 644 "$SERVICE_DEST"
   
-  # Update the YAIL_ROOT in the service file
-  sed -i "s|YAIL_ROOT=.*|YAIL_ROOT=/opt/fujinet-yail-server/server|g" "$SERVICE_DEST"
+  # Update the YAIL_ROOT in the service file - No longer needed as paths are hardcoded
+  # sed -i "s|YAIL_ROOT=.*|YAIL_ROOT=/opt/fujinet-yail-server/server|g" "$SERVICE_DEST"
   
   # Reload systemd to recognize the new service
   systemctl daemon-reload
