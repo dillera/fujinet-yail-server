@@ -19,16 +19,21 @@ VBXE = 16
 
 VALID_GRAPHICS_MODES = [GRAPHICS_8, GRAPHICS_9, GRAPHICS_11, VBXE]
 
-# Mapping from user-friendly Atari mode numbers to internal YAIL constants
-# Users expect "gfx 8" to give them Graphics 8 (which is internal mode 2)
+# Mapping from client parameter values to internal YAIL constants
+# Based on Client "Parameter Sent" table:
+# 2    -> GRAPHICS_8 (Mode 8 Mono)
+# 4    -> GRAPHICS_9 (Mode 9 16-Shade)
+# 8    -> GRAPHICS_10 (Mode 10 9-Color) -> Mapped to GRAPHICS_9 (Fallback)
+# 16   -> GRAPHICS_11 (Mode 11 16-Color) -> Mapped to GRAPHICS_9 (Fallback)
+# vbxe -> VBXE (Mode 20/21)
 GRAPHICS_MODE_MAP = {
-    '8': GRAPHICS_8,   # Atari Mode 8 -> YAIL Mode 2
-    '9': GRAPHICS_9,   # Atari Mode 9 -> YAIL Mode 4
-    '11': GRAPHICS_11, # Atari Mode 11 -> YAIL Mode 8
-    'vbxe': VBXE,      # VBXE -> YAIL Mode 16
-    '2': GRAPHICS_8,   # Internal ID support
-    '4': GRAPHICS_9,   # Internal ID support
-    '16': VBXE         # Internal ID support
+    '2': GRAPHICS_8,    # Client sends '2' for Mode 8
+    '4': GRAPHICS_9,    # Client sends '4' for Mode 9
+    '8': GRAPHICS_9,    # Client sends '8' for Mode 10 -> Fallback to Mode 9
+    '16': GRAPHICS_9,   # Client sends '16' for Mode 11 -> Fallback to Mode 9 (NOT VBXE)
+    'vbxe': VBXE,       # Client sends 'vbxe' for Mode 20/21
+    '20': VBXE,         # Alias for manual testing
+    '21': VBXE          # Alias for manual testing
 }
 
 

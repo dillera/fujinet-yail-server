@@ -345,24 +345,36 @@ def stream_generated_image(client_socket: socket.socket, prompt: str,
     """
     logger.info(f"Generating image with prompt: '{prompt}' model: {model}")
     
-    # Generate image using the configured model
-    url_or_path = generate_image(prompt, model=model)
-    
-    if url_or_path:
-        # Stream the generated image to the client
-        if url_or_path.startswith('http'):
-            # It's a URL (from OpenAI)
-            if not stream_YAI(client_socket, gfx_mode, url=url_or_path):
-                logger.warning(f'Problem with generated image: {url_or_path}')
-                send_client_response(client_socket, "Failed to stream generated image", is_error=True)
+    try:
+        # Generate image using the configured model
+        url_or_path = generate_image(prompt, model=model)
+        
+        if url_or_path:
+            # Stream the generated image to the client
+            if url_or_path.startswith('http'):
+                # It's a URL (from OpenAI)
+                if not stream_YAI(client_socket, gfx_mode, url=url_or_path):
+                    logger.warning(f'Problem with generated image: {url_or_path}')
+                    send_client_response(client_socket, "Failed to stream generated image", is_error=True)
+            else:
+                # It's a local file path (from Gemini)
+                if not stream_YAI(client_socket, gfx_mode, filepath=url_or_path):
+                    logger.warning(f'Problem with generated image: {url_or_path}')
+                    send_client_response(client_socket, "Failed to stream generated image", is_error=True)
         else:
-            # It's a local file path (from Gemini)
-            if not stream_YAI(client_socket, gfx_mode, filepath=url_or_path):
-                logger.warning(f'Problem with generated image: {url_or_path}')
-                send_client_response(client_socket, "Failed to stream generated image", is_error=True)
-    else:
-        logger.warning('Failed to generate image')
-        send_client_response(client_socket, "Failed to generate image", is_error=True)
+            logger.warning('Failed to generate image')
+            send_client_response(client_socket, "Failed to generate image", is_error=True)
+
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Generation failed: {error_msg}")
+        
+        # Check for OpenAI safety violation
+        if "safety system" in error_msg or "content_policy_violation" in error_msg:
+            send_client_response(client_socket, "AI Safety Reject", is_error=True)
+        else:
+            # Send a generic error for other issues to keep it short
+            send_client_response(client_socket, "AI Gen Failed", is_error=True)
 
 
 def stream_generated_image_gemini(client_socket: socket.socket, prompt: str, 
