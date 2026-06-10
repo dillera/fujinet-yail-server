@@ -25,10 +25,8 @@ from yail.stats import STATS
 
 logger = logging.getLogger(__name__)
 
-SOCKET_WAIT_TIME = 1      # seconds between retries on a bad image
-MAX_STREAM_RETRIES = 10   # attempts before giving up on a source list
 CLIENT_TIMEOUT = 300      # seconds
-DOWNLOAD_TIMEOUT = 5      # seconds
+DOWNLOAD_TIMEOUT = 5      # seconds (default; ServerConfig.download_timeout overrides)
 IMAGE_URL_EXTS = [".jpg", ".jpeg", ".gif", ".png"]
 HTTP_METHODS = (b"GET", b"POST", b"PUT", b"DELETE", b"HEAD")
 HTTP_FORBIDDEN = (b"HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\n"
@@ -56,11 +54,12 @@ def take_phrase(tokens: list[str]) -> tuple[str, list[str]]:
     return strip_quotes(" ".join(tokens)), []
 
 
-def fetch_image(url: str | None = None, filepath: str | None = None) -> Image.Image:
+def fetch_image(url: str | None = None, filepath: str | None = None,
+                timeout: float = DOWNLOAD_TIMEOUT) -> Image.Image:
     """Load a PIL image from a URL or a local path."""
     if url is not None:
         logger.info(f"Loading {url}")
-        response = requests.get(url, stream=True, timeout=DOWNLOAD_TIMEOUT)
+        response = requests.get(url, stream=True, timeout=timeout)
         image_data = b""
         for chunk in response.iter_content(4096):
             image_data += chunk
@@ -106,7 +105,8 @@ class ClientSession:
         start = time.monotonic()
         target = url or filepath or "?"
         try:
-            image = fetch_image(url=url, filepath=filepath)
+            image = fetch_image(url=url, filepath=filepath,
+                                timeout=self.server_config.download_timeout)
             self.socket.sendall(convert_image_to_yail(image, self.gfx_mode))
             STATS.image_event(self.thread_id, self.client_mode or "?", target,
                               self.gfx_mode, True, time.monotonic() - start)
@@ -123,12 +123,12 @@ class ClientSession:
         if not self.urls:
             self.send_text("No images found", is_error=True)
             return
-        for _ in range(MAX_STREAM_RETRIES):
+        for _ in range(self.server_config.stream_max_retries):
             url = random.choice(self.urls)
             if self.stream_image(url=url):
                 return
             logger.warning(f"{self.thread_id} Problem with {url}, trying another...")
-            time.sleep(SOCKET_WAIT_TIME)
+            time.sleep(self.server_config.stream_retry_wait)
         self.send_text("Could not load any image", is_error=True)
 
     def stream_random_from_files(self) -> None:
@@ -138,12 +138,12 @@ class ClientSession:
         if not self.filenames:
             self.send_text("No image files available", is_error=True)
             return
-        for _ in range(MAX_STREAM_RETRIES):
+        for _ in range(self.server_config.stream_max_retries):
             filename = random.choice(self.filenames)
             if self.stream_image(filepath=filename):
                 return
             logger.warning(f"{self.thread_id} Problem with {filename}, trying another...")
-            time.sleep(SOCKET_WAIT_TIME)
+            time.sleep(self.server_config.stream_retry_wait)
         self.send_text("Could not load any image", is_error=True)
 
     def stream_generated(self, prompt: str, model: str | None = None) -> None:
@@ -187,7 +187,9 @@ class ClientSession:
         prompt, rest = take_phrase(tokens[1:])
         logger.info(f"{self.thread_id} Received search '{prompt}'")
         STATS.incr("searches")
-        self.urls = search_images(prompt)
+        self.urls = search_images(prompt,
+                                  max_images=self.server_config.search_max_results,
+                                  backends=self.server_config.search_backends)
         self.stream_random_from_urls()
         return rest
 
@@ -230,6 +232,9 @@ class ClientSession:
         return tokens[1:]
 
     def handle_next(self, tokens: list[str]) -> list[str]:
+        if not self.server_config.streaming_enabled:
+            self.send_text("Streaming is disabled on this server", is_error=True)
+            return tokens[1:]
         if self.client_mode == "search":
             self.stream_random_from_urls()
         elif self.client_mode == "video":

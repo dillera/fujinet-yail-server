@@ -123,6 +123,20 @@ local images unless explicitly configured. Enable it one of three ways:
   (persisting writes the two env vars above, and the new folder is
   re-indexed live without a restart).
 
+### Streaming and search servers
+
+The web UI also manages (all persisted to the env file, applied live):
+
+- **Streaming** — enable/disable the client slideshow (`next` command),
+  plus max retries per request, wait between retries, and the remote
+  image download timeout (`STREAM_ENABLED`, `STREAM_MAX_RETRIES`,
+  `STREAM_RETRY_WAIT`, `STREAM_DOWNLOAD_TIMEOUT`).
+- **Image search servers** — an ordered, editable list of DDGS engines
+  used by the `search` command (add/remove in the UI; `auto` means all
+  engines), plus the max result count (`SEARCH_BACKENDS`,
+  `SEARCH_MAX_RESULTS`). Useful when one engine starts returning no
+  results — switch to another without touching the code.
+
 ## Deployment
 
 The `deployment` directory deploys the server as a systemd service on Linux:

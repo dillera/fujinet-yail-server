@@ -20,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from yail import __version__
-from yail.config import ImageGenConfig, ServerConfig
+from yail.config import ImageGenConfig, ServerConfig, valid_search_backends
 from yail.stats import LOG_BUFFER, STATS
 
 logger = logging.getLogger(__name__)
@@ -123,8 +123,10 @@ class AdminRequestHandler(BaseHTTPRequestHandler):
             "total_connections": snap["total_connections"],
             "local_files": len(ctx.filenames),
             "files_enabled": ctx.server_config.files_enabled,
+            "streaming_enabled": ctx.server_config.streaming_enabled,
             "camera_enabled": ctx.server_config.enable_camera,
-            "search_backend": f"ddgs {ddgs_version}",
+            "search_backend": (f"ddgs {ddgs_version} "
+                               f"[{','.join(ctx.server_config.search_backends)}]"),
             "openai_key_set": bool(ctx.gen_config.api_key),
             "gemini_key_set": bool(ctx.gen_config.gemini_api_key),
         }
@@ -136,6 +138,12 @@ class AdminRequestHandler(BaseHTTPRequestHandler):
             "files_enabled": server.files_enabled,
             "files_path": server.paths[0] if server.paths else "",
             "files_count": len(self.context.filenames),
+            "streaming_enabled": server.streaming_enabled,
+            "stream_max_retries": server.stream_max_retries,
+            "stream_retry_wait": server.stream_retry_wait,
+            "download_timeout": server.download_timeout,
+            "search_backends": list(server.search_backends),
+            "search_max_results": server.search_max_results,
             "model": gen.model,
             "size": gen.size,
             "quality": gen.quality,
@@ -148,6 +156,7 @@ class AdminRequestHandler(BaseHTTPRequestHandler):
                 "sizes": gen.VALID_SIZES,
                 "qualities": gen.VALID_QUALITIES,
                 "styles": gen.VALID_STYLES,
+                "search_backends": valid_search_backends(),
             },
         }
 
@@ -235,6 +244,60 @@ class AdminRequestHandler(BaseHTTPRequestHandler):
             # so the choice survives restarts.
             to_persist["FILES_ENABLED"] = ("true" if server.files_enabled else "false")
 
+        def num_setting(name: str, attr: str, cast, lo, hi, env_var: str) -> None:
+            if name not in payload:
+                return
+            try:
+                value = cast(payload[name])
+            except (TypeError, ValueError):
+                errors.append(f"invalid {name}: {payload[name]!r}")
+                return
+            if not lo <= value <= hi:
+                errors.append(f"{name} must be between {lo} and {hi}")
+                return
+            if getattr(server, attr) != value:
+                setattr(server, attr, value)
+                logger.info(f"{name} set to {value} via web UI")
+                applied.append(name)
+            to_persist[env_var] = str(value)
+
+        num_setting("stream_max_retries", "stream_max_retries", int, 1, 100,
+                    "STREAM_MAX_RETRIES")
+        num_setting("stream_retry_wait", "stream_retry_wait", float, 0, 60,
+                    "STREAM_RETRY_WAIT")
+        num_setting("download_timeout", "download_timeout", float, 1, 120,
+                    "STREAM_DOWNLOAD_TIMEOUT")
+        num_setting("search_max_results", "search_max_results", int, 1, 2000,
+                    "SEARCH_MAX_RESULTS")
+
+        if "streaming_enabled" in payload:
+            enabled = bool(payload["streaming_enabled"])
+            if enabled != server.streaming_enabled:
+                server.streaming_enabled = enabled
+                logger.info(f"Streaming {'enabled' if enabled else 'disabled'} via web UI")
+                applied.append("streaming_enabled")
+            to_persist["STREAM_ENABLED"] = "true" if enabled else "false"
+
+        if "search_backends" in payload:
+            raw = payload["search_backends"]
+            backends = ([str(b).strip().lower() for b in raw if str(b).strip()]
+                        if isinstance(raw, list) else [])
+            valid = valid_search_backends()
+            unknown = [b for b in backends if b not in valid]
+            if not backends:
+                errors.append("search_backends must be a non-empty list")
+            elif unknown:
+                errors.append(f"unknown search backends: {', '.join(unknown)} "
+                              f"(valid: {', '.join(valid)})")
+            else:
+                if "auto" in backends:
+                    backends = ["auto"]
+                if backends != server.search_backends:
+                    server.search_backends = backends
+                    logger.info(f"Search backends set to {backends} via web UI")
+                    applied.append("search_backends")
+                to_persist["SEARCH_BACKENDS"] = ",".join(backends)
+
         persisted = False
         if payload.get("persist") and to_persist:
             try:
@@ -304,6 +367,18 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
            padding:8px 16px; font:inherit; font-weight:bold; cursor:pointer; margin-top:12px; }
   button:hover { filter:brightness(1.12); }
   .row { display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
+  .row3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:0 12px; }
+  .chip { display:inline-flex; align-items:center; gap:7px; background:var(--bg);
+          border:1px solid var(--line); border-radius:12px; padding:2px 10px;
+          margin:3px 5px 0 0; font-size:12.5px; }
+  .chip span { cursor:pointer; color:var(--err); font-weight:bold; }
+  .addrow { display:flex; gap:8px; margin-top:6px; }
+  .addrow select { flex:1; }
+  .addrow button { margin-top:0; padding:5px 12px; }
+  fieldset { border:1px solid var(--line); border-radius:6px; margin:14px 0 0;
+             padding:2px 12px 12px; }
+  legend { color:var(--dim); font-size:11px; text-transform:uppercase;
+           letter-spacing:1px; padding:0 6px; }
   /* ~40 visible log lines (11.5px * 1.5 line-height * 40), newest at the top. */
   #logs { background:var(--bg); border:1px solid var(--line); border-radius:5px;
           padding:8px 10px; height:690px; overflow-y:auto; font-size:11.5px;
@@ -344,12 +419,37 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
             <div><label>Gemini API key <span class="dim" id="cur_gkey"></span></label>
                  <input name="gemini_api_key" id="cfg_gkey" placeholder="leave blank to keep"></div>
           </div>
-          <label>Local files folder <span class="dim" id="cur_files"></span></label>
-          <input id="cfg_fpath" placeholder="absolute folder path (blank = no local files)">
-          <div class="persist">
-            <input type="checkbox" id="cfg_fenabled">
-            <span>enable local file serving (the <b>files</b> command)</span>
-          </div>
+          <fieldset>
+            <legend>Local files</legend>
+            <label>Folder <span class="dim" id="cur_files"></span></label>
+            <input id="cfg_fpath" placeholder="absolute folder path (blank = no local files)">
+            <div class="persist">
+              <input type="checkbox" id="cfg_fenabled">
+              <span>enable local file serving (the <b>files</b> command)</span>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Streaming</legend>
+            <div class="persist" style="margin-top:6px">
+              <input type="checkbox" id="cfg_stream">
+              <span>enable streaming / slideshow (the <b>next</b> command)</span>
+            </div>
+            <div class="row3">
+              <div><label>Max retries</label><input id="cfg_retries" type="number" min="1" max="100"></div>
+              <div><label>Retry wait (s)</label><input id="cfg_rwait" type="number" min="0" max="60" step="0.1"></div>
+              <div><label>Download timeout (s)</label><input id="cfg_dlto" type="number" min="1" max="120" step="0.5"></div>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Image search servers</legend>
+            <div id="backendChips"></div>
+            <div class="addrow">
+              <select id="backendSel"></select>
+              <button type="button" onclick="addBackend()">Add</button>
+            </div>
+            <label>Max search results</label>
+            <input id="cfg_smax" type="number" min="1" max="2000">
+          </fieldset>
           <div class="persist">
             <input type="checkbox" id="cfg_persist" checked>
             <span>persist to <span id="envPath">.env</span></span>
@@ -443,8 +543,40 @@ async function loadConfig() {
   $("cfg_fpath").value = c.files_path;
   $("cfg_fenabled").checked = c.files_enabled;
   $("cur_files").textContent = `(${c.files_count} files indexed)`;
+  $("cfg_stream").checked = c.streaming_enabled;
+  $("cfg_retries").value = c.stream_max_retries;
+  $("cfg_rwait").value = c.stream_retry_wait;
+  $("cfg_dlto").value = c.download_timeout;
+  $("cfg_smax").value = c.search_max_results;
+  searchBackends = c.search_backends.slice();
+  validBackends = c.valid.search_backends;
+  renderBackends();
   $("envPath").textContent = c.env_file;
   cfgLoaded = true;
+}
+
+let searchBackends = [], validBackends = [];
+
+function renderBackends() {
+  $("backendChips").innerHTML = searchBackends.map((b, i) =>
+      `<span class="chip">${esc(b)}<span onclick="removeBackend(${i})" title="remove">&times;</span></span>`
+    ).join("") || `<span class="dim">none — searches will fail</span>`;
+  const options = validBackends.filter(b => !searchBackends.includes(b));
+  $("backendSel").innerHTML = options.map(b => `<option>${esc(b)}</option>`).join("");
+}
+
+function addBackend() {
+  const sel = $("backendSel").value;
+  if (sel && !searchBackends.includes(sel)) {
+    // "auto" means all engines, so it replaces any specific selection.
+    searchBackends = sel === "auto" ? ["auto"] : [...searchBackends.filter(b => b !== "auto"), sel];
+    renderBackends();
+  }
+}
+
+function removeBackend(i) {
+  searchBackends.splice(i, 1);
+  renderBackends();
 }
 
 async function saveConfig(ev) {
@@ -455,6 +587,12 @@ async function saveConfig(ev) {
     system_prompt: $("cfg_prompt").value,
     openai_api_key: $("cfg_okey").value, gemini_api_key: $("cfg_gkey").value,
     files_path: $("cfg_fpath").value, files_enabled: $("cfg_fenabled").checked,
+    streaming_enabled: $("cfg_stream").checked,
+    stream_max_retries: $("cfg_retries").value,
+    stream_retry_wait: $("cfg_rwait").value,
+    download_timeout: $("cfg_dlto").value,
+    search_backends: searchBackends,
+    search_max_results: $("cfg_smax").value,
     persist: $("cfg_persist").checked,
   };
   const r = await fetch("/api/config",

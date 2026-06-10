@@ -170,6 +170,59 @@ def test_files_enable_requires_path(webui):
     assert context.server_config.files_enabled is False
 
 
+def test_streaming_config_applies_and_persists(webui):
+    base, _, env_path, context = webui
+    result = post_json(base + "/api/config", {
+        "streaming_enabled": False, "stream_max_retries": 5,
+        "stream_retry_wait": 0.5, "download_timeout": 10, "persist": True,
+    })
+    assert result["errors"] == []
+    assert context.server_config.streaming_enabled is False
+    assert context.server_config.stream_max_retries == 5
+    assert context.server_config.stream_retry_wait == 0.5
+    assert context.server_config.download_timeout == 10
+    env_text = env_path.read_text()
+    assert "STREAM_ENABLED" in env_text and "false" in env_text
+    assert "STREAM_MAX_RETRIES" in env_text
+
+
+def test_streaming_config_rejects_out_of_range(webui):
+    base, _, _, context = webui
+    result = post_json(base + "/api/config", {"stream_max_retries": 0})
+    assert any("stream_max_retries" in e for e in result["errors"])
+    assert context.server_config.stream_max_retries == 10
+
+
+def test_search_backends_set_and_persist(webui):
+    base, _, env_path, context = webui
+    result = post_json(base + "/api/config",
+                       {"search_backends": ["Bing", "duckduckgo"],
+                        "search_max_results": 200, "persist": True})
+    assert result["errors"] == []
+    assert context.server_config.search_backends == ["bing", "duckduckgo"]
+    assert context.server_config.search_max_results == 200
+    env_text = env_path.read_text()
+    assert "SEARCH_BACKENDS" in env_text and "bing,duckduckgo" in env_text
+    assert "SEARCH_MAX_RESULTS" in env_text
+
+
+def test_search_backends_reject_unknown_and_empty(webui):
+    base, _, _, context = webui
+    result = post_json(base + "/api/config", {"search_backends": ["altavista"]})
+    assert any("altavista" in e for e in result["errors"])
+    assert context.server_config.search_backends == ["auto"]
+
+    result = post_json(base + "/api/config", {"search_backends": []})
+    assert any("non-empty" in e for e in result["errors"])
+
+
+def test_search_backends_auto_collapses(webui):
+    base, _, _, context = webui
+    result = post_json(base + "/api/config", {"search_backends": ["bing", "auto"]})
+    assert result["errors"] == []
+    assert context.server_config.search_backends == ["auto"]
+
+
 def test_files_clearing_path_disables(webui, tmp_path):
     base, _, _, context = webui
     folder = tmp_path / "imgs2"

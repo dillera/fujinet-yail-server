@@ -143,6 +143,20 @@ def main(argv: list[str] | None = None) -> int:
     else:
         paths, files_enabled = [], False
 
+    def env_bool(name: str, default: bool) -> bool:
+        value = os.environ.get(name, "").strip().lower()
+        return default if not value else value in ("1", "true", "yes")
+
+    def env_num(name: str, default, cast):
+        try:
+            return cast(os.environ.get(name, ""))
+        except (TypeError, ValueError):
+            return default
+
+    search_backends = [b.strip().lower()
+                       for b in os.environ.get("SEARCH_BACKENDS", "auto").split(",")
+                       if b.strip()] or ["auto"]
+
     server_config = ServerConfig(
         host=args.host,
         port=args.port if args.port is not None else int(os.environ.get("YAIL_PORT", DEFAULT_PORT)),
@@ -151,6 +165,12 @@ def main(argv: list[str] | None = None) -> int:
         camera=args.camera if args.camera else None,
         enable_camera=args.camera is not None,
         files_enabled=files_enabled,
+        streaming_enabled=env_bool("STREAM_ENABLED", True),
+        stream_max_retries=env_num("STREAM_MAX_RETRIES", 10, int),
+        stream_retry_wait=env_num("STREAM_RETRY_WAIT", 1.0, float),
+        download_timeout=env_num("STREAM_DOWNLOAD_TIMEOUT", 5.0, float),
+        search_backends=search_backends,
+        search_max_results=env_num("SEARCH_MAX_RESULTS", 1000, int),
     )
 
     filenames = collect_files(server_config.paths, server_config.extensions) if paths else []

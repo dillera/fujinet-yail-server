@@ -22,11 +22,12 @@ def gen_config(monkeypatch):
 
 
 def run_session(commands: bytes, gen_config, filenames=None, timeout=10.0,
-                files_enabled=True) -> bytes:
+                files_enabled=True, streaming_enabled=True) -> bytes:
     """Run a ClientSession against a socketpair; return everything it sent."""
     server_sock, client_sock = socket.socketpair()
-    session = ClientSession(server_sock, 1, ServerConfig(files_enabled=files_enabled),
-                            gen_config, filenames or [])
+    config = ServerConfig(files_enabled=files_enabled,
+                          streaming_enabled=streaming_enabled)
+    session = ClientSession(server_sock, 1, config, gen_config, filenames or [])
 
     def run():
         try:
@@ -102,6 +103,19 @@ def test_files_disabled_sends_error_packet(gen_config):
     assert received[10:10 + msg_len] == b"File serving is disabled on this server"
 
 
+def test_next_with_streaming_disabled_sends_error(gen_config):
+    received = run_session(b"gfx 4 files next quit", gen_config,
+                           filenames=[TEST_IMAGE], streaming_enabled=False)
+    # The files image streams normally; the 'next' is refused.
+    assert received[:3] == bytes([1, 1, 0])
+    error_start = 7 + 8800
+    packet = received[error_start:]
+    assert packet[:3] == bytes([1, 4, 0])
+    assert packet[5] == ERROR_BLOCK
+    msg_len = struct.unpack("<I", packet[6:10])[0]
+    assert packet[10:10 + msg_len] == b"Streaming is disabled on this server"
+
+
 def test_next_without_mode_sends_error(gen_config):
     received = run_session(b"next quit", gen_config)
     assert received[5] == ERROR_BLOCK
@@ -125,7 +139,8 @@ def test_gen_routes_model_and_prompt(gen_config, monkeypatch):
 
 
 def test_search_uses_ddgs_results(gen_config, monkeypatch):
-    monkeypatch.setattr("yail.server.search_images", lambda term, max_images=1000: [])
+    monkeypatch.setattr("yail.server.search_images",
+                        lambda term, max_images=1000, backends=None: [])
     received = run_session(b'search "anything" quit', gen_config)
     assert received[5] == ERROR_BLOCK  # no images found -> error packet
 

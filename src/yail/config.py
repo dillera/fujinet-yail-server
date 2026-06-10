@@ -24,6 +24,24 @@ class ServerConfig:
     # Local file serving is opt-in: the 'files' command only works when this
     # is true AND an explicit folder path was configured (CLI, env, or UI).
     files_enabled: bool = False
+    # Streaming: the client slideshow loop driven by the 'next' command.
+    streaming_enabled: bool = True
+    stream_max_retries: int = 10     # attempts before giving up on a source list
+    stream_retry_wait: float = 1.0   # seconds between retries on a bad image
+    download_timeout: float = 5.0    # seconds to fetch a remote image
+    # Image search: ordered DDGS engine names, or ["auto"] for all engines.
+    search_backends: list[str] = field(default_factory=lambda: ["auto"])
+    search_max_results: int = 1000
+
+
+def valid_search_backends() -> list[str]:
+    """Image search engines available in the installed ddgs package."""
+    try:
+        from ddgs.engines import ENGINES
+        engines = sorted(set(ENGINES.get("images", [])))
+    except Exception:
+        engines = ["bing", "duckduckgo"]
+    return ["auto"] + engines
 
 
 class ImageGenConfig:
