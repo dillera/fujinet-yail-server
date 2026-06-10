@@ -10,8 +10,8 @@ import threading
 
 def start_server():
     """Start the YAIL server in a subprocess and return the process"""
-    server_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'server')
-    env_path = os.path.join(server_dir, 'env')
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env_path = os.path.join(repo_root, '.env')
     
     # Set up environment variables
     env = os.environ.copy()
@@ -24,10 +24,9 @@ def start_server():
                     env[key] = value
     
     # Start the server process
-    server_script = os.path.join(server_dir, 'yail.py')
     process = subprocess.Popen(
-        [sys.executable, server_script],
-        cwd=server_dir,
+        [sys.executable, '-m', 'yail'],
+        cwd=repo_root,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         universal_newlines=True,

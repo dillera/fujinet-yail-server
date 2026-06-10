@@ -122,3 +122,5 @@ env
 .Trashes
 ehthumbs.db
 Thumbs.db
+generated_images/
+tests/golden/*.new

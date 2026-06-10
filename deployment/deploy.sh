@@ -68,21 +68,21 @@ setup_environment() {
   
   # Setup virtual environment
   echo "Setting up Python virtual environment..."
-  cd "$INSTALL_DIR/server"
+  cd "$INSTALL_DIR"
   if [ ! -d "venv" ]; then
     echo "Creating new virtual environment..."
     sudo -u "$FUJINET_USER" python3 -m venv venv
   fi
-  
-  # Install dependencies
-  echo "Installing Python dependencies..."
-  sudo -u "$FUJINET_USER" bash -c "source venv/bin/activate && pip install -r requirements.txt"
-  
+
+  # Install the yail-server package with generation backends
+  echo "Installing yail-server package..."
+  sudo -u "$FUJINET_USER" bash -c "source venv/bin/activate && pip install '.[gen]'"
+
   # Create env file if it doesn't exist
-  if [ ! -f "$INSTALL_DIR/server/env" ]; then
-    echo "Creating env file from example..."
-    cp "$INSTALL_DIR/deployment/env.example" "$INSTALL_DIR/server/env"
-    echo "NOTE: You need to edit $INSTALL_DIR/server/env to add your OpenAI API key"
+  if [ ! -f "$INSTALL_DIR/.env" ]; then
+    echo "Creating .env file from example..."
+    cp "$INSTALL_DIR/deployment/env.example" "$INSTALL_DIR/.env"
+    echo "NOTE: You need to edit $INSTALL_DIR/.env to add your OpenAI API key"
   fi
   
   echo "Environment setup complete."
@@ -99,7 +99,7 @@ install_service() {
   chmod 644 "$SERVICE_DEST"
   
   # Update the YAIL_ROOT in the service file
-  sed -i "s|YAIL_ROOT=.*|YAIL_ROOT=/opt/fujinet-yail-server/server|g" "$SERVICE_DEST"
+  sed -i "s|YAIL_ROOT=.*|YAIL_ROOT=/opt/fujinet-yail-server\"|g" "$SERVICE_DEST"
   
   # Reload systemd to recognize the new service
   systemctl daemon-reload

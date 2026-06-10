@@ -7,8 +7,8 @@ def create_env_file():
     """Create a env file with OpenAI API key and configuration."""
     # Get the server directory path (one level up from deployment directory and then into server)
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    server_dir = os.path.normpath(os.path.join(script_dir, '..', 'server'))
-    env_path = os.path.join(server_dir, 'env')
+    server_dir = os.path.normpath(os.path.join(script_dir, '..'))
+    env_path = os.path.join(server_dir, '.env')
     
     # Check if env file already exists
     if os.path.exists(env_path):
@@ -97,7 +97,7 @@ OPENAI_SYSTEM_PROMPT="{system_prompt}"
     print("\nTo start the server with these settings, run:")
     print(f"cd {server_dir}")
     print("source venv/bin/activate")
-    print("python yail.py --loglevel DEBUG")
+    print("yail-server --loglevel DEBUG")
 
 if __name__ == "__main__":
     create_env_file()

@@ -1,150 +1,120 @@
 # YAIL (Yet Another Image Loader) Image Server
 
-## About ##
-This is the image server software that streams images to the YAIL client.  The server performs the "heavy lifting" of finding the image then converting it to the requested format and finally streams it via TCP to the client.
+## About
 
-## Command line ##
-** TBD ***
+This is the image server that streams images to the YAIL client running on a
+FujiNet-equipped Atari 8-bit computer. The server does the heavy lifting:
+finding or generating the image, converting it to the requested native
+graphics format (Graphics 8, Graphics 9, or VBXE), and streaming it over TCP.
 
-### Features ###
-- **Multi-API Image Generation**: Generate images using OpenAI's DALL-E 3 model or Google's Gemini model
-- **Local Image Streaming**: Stream images from a local directory
-- **Web Camera Support**: Stream live video from a connected webcam
-- **Multiple Graphics Modes**: Support for different Atari graphics modes (8, 9, and VBXE)
-- **Custom Image Processing**: Automatically resize, crop, and format images for optimal display on Atari
-- **HTTP Request Handling**: Properly responds to HTTP requests with appropriate messages
-- **Network Detection**: Automatically detects available network interfaces and recommends the best IP for connections
+The wire protocol is documented in [PROTOCOL.md](PROTOCOL.md).
 
-### Requirements ###
-- Python 3.6+
-- Required Python packages (install via pip):
-  - requests
-  - duckduckgo_search
-  - fastcore
-  - pillow
-  - tqdm
-  - olefile
-  - numpy
-  - pygame
-  - openai
-  - python-dotenv
-  - netifaces
-  - google-generativeai (for Gemini support)
+## Features
 
-### Server Commands ###
-The YAIL server can process the following commands from clients:
-- `generate <prompt>` or `gen <prompt>`: Generate an image using the configured image generation model
-- `search <terms>`: Search for images using the provided terms (redirects to image generation)
-- `camera`: Stream from a connected webcam
-- `openai`: Configure image generation settings
-- `gfx <mode>`: Set the graphics mode
-- `quit`: Exit the client connection
+- **Image search**: `search` finds images via the DDGS metasearch package
+- **AI image generation**: OpenAI (`gpt-image-1`, `dall-e-3`, `dall-e-2`) and
+  Google Gemini (`gemini-2.5-flash-image` and other image-capable models)
+- **Local image streaming**: serve a directory of images with `--paths`
+- **Direct URLs**: `showurl` streams a specific image URL
+- **Webcam streaming**: optional, via pygame (`[camera]` extra)
+- **Multiple graphics modes**: Graphics 8 (320×220 dithered), Graphics 9
+  (80×220, 16 luminances), and VBXE (320×240, 256 colors)
 
-### Configuration ###
-The server can be configured using environment variables. Copy the `deployment/env.example` file to `server/env` and edit it to set your API keys and preferences:
+## Installation
+
+Requires Python 3.10+.
 
 ```bash
-# Image Generation API Configuration
+python3 -m venv venv
+source venv/bin/activate
+pip install ".[gen]"          # core + OpenAI/Gemini generation
+# optional extras: [camera] for webcam support, [netinfo] for interface listing
+```
+
+## Running
+
+```bash
+# Stream images from a local directory
+yail-server --paths /path/to/images --loglevel INFO
+
+# Choose a port (default 5556)
+yail-server --paths test_images --port 5556
+
+# Image generation with OpenAI
+yail-server --openai-api-key sk-... --gen-model gpt-image-1
+
+# Image generation with Google Gemini (requires GEMINI_API_KEY)
+yail-server --gen-model gemini
+```
+
+`python -m yail` works as an alternative to the `yail-server` script.
+
+## Server commands
+
+Commands the server accepts from clients (see PROTOCOL.md for details):
+
+- `search "<terms>"` — search for images and stream a random result
+- `gen <model> "<prompt>"` — generate an image with the given model
+- `gen-gemini "<prompt>"` — generate with the default Gemini model
+- `showurl <url>` — stream a specific image URL
+- `files` — stream a random image from `--paths`
+- `video` — stream a webcam frame
+- `next` — repeat the previous operation (new result/frame/regeneration)
+- `gfx <mode>` — set the graphics mode (2 = Graphics 8, 4 = Graphics 9, 16 = VBXE)
+- `openai-config [param] [value]` — get/set generation settings
+- `quit` — end the session
+
+## Configuration
+
+Settings precedence (lowest to highest): process environment, env file,
+command-line arguments.
+
+Copy `deployment/env.example` to `.env` in the working directory (or pass
+`--env-file path`):
+
+```bash
 OPENAI_API_KEY=your_openai_api_key_here
 GEMINI_API_KEY=your_gemini_api_key_here_if_needed
-
-# Image Generation Model Configuration
-GEN_MODEL=dall-e-3  # Options: dall-e-3, dall-e-2, gemini
-
-# OpenAI-specific Configuration (used only with dall-e models)
+GEN_MODEL=dall-e-3        # gpt-image-1, dall-e-3, dall-e-2, gemini, ...
 OPENAI_SIZE=1024x1024
-OPENAI_QUALITY=standard
-OPENAI_STYLE=vivid
-OPENAI_SYSTEM_PROMPT='You are an expert illustrator creating beautiful, imaginative artwork'
+OPENAI_QUALITY=standard   # dall-e-3: standard|hd; gpt-image-1: low|medium|high|auto
+OPENAI_STYLE=vivid        # dall-e-3 only: vivid|natural
 ```
 
-### API Keys
+### API keys
 
-- For OpenAI models (dall-e-3, dall-e-2), you need an OpenAI API key from [OpenAI's platform](https://platform.openai.com/api-keys)
-- For Google Gemini model, you need a Gemini API key from [Google AI Studio](https://aistudio.google.com/)
+- OpenAI models (`gpt-image-1`, `dall-e-*`): [OpenAI API keys](https://platform.openai.com/api-keys)
+- Gemini models: [Google AI Studio](https://aistudio.google.com/)
 
-### Image Generation Models
+Model routing is automatic: names starting with `dall-e-` or `gpt-` use the
+OpenAI API; names containing `gemini` use the Google Gemini API (`gemini`
+alone selects `gemini-2.5-flash-image`).
 
-The server supports multiple image generation models:
+## Deployment
 
-1. **OpenAI DALL-E Models**:
-   - `dall-e-3`: High-quality image generation with detailed prompt following
-   - `dall-e-2`: Faster generation with lower cost
-   - Other OpenAI models as they become available
+The `deployment` directory deploys the server as a systemd service on Linux:
 
-2. **Google Gemini Models**:
-   - `gemini-2.5-pro-exp-03-25`: Google's advanced image generation model
-   - Other Gemini models as they become available
-
-Set your preferred model using the `GEN_MODEL` environment variable or the `--gen-model` command-line argument. The server automatically detects which API to use based on the model name prefix:
-- Models starting with `dall-e-` or `gpt-` use the OpenAI API
-- Models starting with `gemini` use the Google Gemini API
+- `fujinet-yail.service` — systemd unit running the venv's `yail-server`
+- `deploy.sh` — installs to `/opt/fujinet-yail-server`, creates the venv,
+  installs the package, sets up `.env`, and enables the service
+- `env.example` — example environment configuration
+- `test_service.sh`, `test_gen_command.py`, `test_image_gen.py` — test scripts
 
 ```bash
-# Example: Using OpenAI DALL-E 3
-GEN_MODEL=dall-e-3
-
-# Example: Using Google Gemini
-GEN_MODEL=gemini-2.5-pro-exp-03-25
+cd deployment
+sudo ./deploy.sh
+sudo systemctl status fujinet-yail
 ```
 
-### Deployment ###
-The `deployment` directory contains scripts and configuration files to help deploy the YAIL server as a systemd service on Linux systems.
+## Development
 
-#### Deployment Files
-- `fujinet-yail.service`: Systemd service file that properly activates the Python virtual environment
-- `deploy.sh`: Installation script that sets up the service, environment, and dependencies
-- `test_service.sh`: Script to test the YAIL server via curl, automatically detecting server IP and port
-- `env.example`: Example environment configuration file
-
-#### Deployment Instructions
-1. Clone the repository
-2. Navigate to the deployment directory
-3. Run the deployment script:
-   ```
-   ./deploy.sh
-   ```
-4. The script will:
-   - Create a Python virtual environment
-   - Install required dependencies
-   - Set up the systemd service
-   - Configure environment variables
-
-### Testing ###
-The `deployment` directory also contains test scripts to verify the server's functionality:
-
-#### Test Scripts
-- `test_service.sh`: Tests basic connectivity to the YAIL server
-- `test_gen_command.py`: Tests the image generation functionality
-- `test_image_gen.py`: Advanced testing script with detailed binary data analysis
-- `test_server_logs.py`: Monitors server logs during testing
-
-#### Running Tests
-```
-# Test basic connectivity
-./deployment/test_service.sh
-
-# Test image generation
-python deployment/test_gen_command.py "happy people dancing"
+```bash
+pip install -e ".[dev]"
+pytest
 ```
 
-### Example Usage ###
-1. Start the server with local images:
-   ```
-   python server/yail.py --paths /path/to/images --loglevel INFO
-   ```
-
-2. Start the server with OpenAI's DALL-E 3 for image generation:
-   ```
-   python server/yail.py --openai-api-key your_api_key_here --gen-model dall-e-3
-   ```
-
-3. Start the server with Google's Gemini model for image generation:
-   ```
-   python server/yail.py --gen-model gemini
-   ```
-
-4. Start the server as a systemd service:
-   ```
-   sudo systemctl start fujinet-yail
-   ```
+The test suite includes golden-bytes regression tests (`tests/golden/`)
+that pin the wire format to the exact output of the pre-2.0 server, plus
+command-handling tests that exercise a live `ClientSession` over a
+socketpair. If you touch `yail/imaging.py` or `yail/protocol.py`, the
+golden tests are the contract with client binaries already in the wild.
