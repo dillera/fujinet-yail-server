@@ -90,6 +90,27 @@ Model routing is automatic: names starting with `dall-e-` or `gpt-` use the
 OpenAI API; names containing `gemini` use the Google Gemini API (`gemini`
 alone selects `gemini-2.5-flash-image`).
 
+## Admin web UI
+
+The server runs a lightweight admin dashboard alongside the YAIL protocol
+socket (no extra dependencies). It shows server status, connected clients,
+recently served images with conversion timing, and a live log tail, and
+lets you view/update generation settings and API keys at runtime —
+optionally persisting them to the env file.
+
+```bash
+yail-server --paths images          # UI at http://127.0.0.1:5557/
+yail-server --ui-port 8080          # different UI port
+yail-server --no-ui                 # disable the UI
+```
+
+By default the UI binds to `127.0.0.1` only, since it can read masked and
+set unmasked API keys. To reach a remote server's UI, prefer an SSH tunnel
+(`ssh -L 5557:127.0.0.1:5557 host`) over exposing it with `--ui-host`.
+
+JSON endpoints behind the dashboard: `/api/status`, `/api/config`
+(GET/POST), `/api/logs`, `/api/stats`.
+
 ## Deployment
 
 The `deployment` directory deploys the server as a systemd service on Linux:

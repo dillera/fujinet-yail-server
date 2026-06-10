@@ -12,6 +12,8 @@ from yail import __version__
 from yail.camera import init_camera, shutdown_camera
 from yail.config import DEFAULT_EXTENSIONS, DEFAULT_PORT, ImageGenConfig, ServerConfig
 from yail.server import YailServer
+from yail.stats import install_log_buffer
+from yail.webui import DEFAULT_UI_PORT, WebUIContext, start_webui
 
 logger = logging.getLogger("yail")
 
@@ -88,26 +90,37 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--openai-size", default=None, help="Image size for generation")
     parser.add_argument("--openai-quality", default=None, help="Image quality for generation")
     parser.add_argument("--openai-style", default=None, help="Image style (dall-e-3 only)")
+    parser.add_argument("--ui-host", default="127.0.0.1",
+                        help="Address for the admin web UI (default 127.0.0.1; "
+                             "it can change API keys, so expose with care)")
+    parser.add_argument("--ui-port", type=int, default=DEFAULT_UI_PORT,
+                        help=f"Port for the admin web UI (default {DEFAULT_UI_PORT})")
+    parser.add_argument("--no-ui", action="store_true",
+                        help="Disable the admin web UI")
     return parser
 
 
-def load_environment(env_file: str | None) -> None:
-    """Load env vars. The env file overrides the process environment
-    (matching legacy precedence); CLI args override both."""
+def load_environment(env_file: str | None) -> str:
+    """Load env vars and return the env file path in effect.
+
+    The env file overrides the process environment (matching legacy
+    precedence); CLI args override both. The returned path is where the
+    web UI persists configuration changes (it may not exist yet)."""
     if env_file:
         if os.path.exists(env_file):
             logger.info(f"Loading environment variables from {env_file}")
             load_dotenv(env_file, override=True)
         else:
             logger.warning(f"Env file not found: {env_file}")
-        return
+        return env_file
 
     for candidate in (".env", os.path.join("server", "env")):
         if os.path.exists(candidate):
             logger.info(f"Loading environment variables from {candidate}")
             load_dotenv(candidate, override=True)
-            return
+            return candidate
     logger.info("No env file found. Using process environment variables.")
+    return ".env"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -119,7 +132,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.loglevel:
         logging.getLogger().setLevel(args.loglevel.upper())
 
-    load_environment(args.env_file)
+    install_log_buffer()
+    env_path = load_environment(args.env_file)
 
     logger.info("Environment:")
     logger.info(f"  OPENAI_API_KEY: {'set' if os.environ.get('OPENAI_API_KEY') else 'not set'}")
@@ -164,9 +178,20 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("Port may already be in use. Try killing any existing YAIL processes.")
         return 1
 
+    webui_server = None
+    if not args.no_ui:
+        context = WebUIContext(gen_config, server_config, filenames, env_path=env_path)
+        try:
+            webui_server = start_webui(args.ui_host, args.ui_port, context)
+        except OSError as e:
+            logger.warning(f"Could not start admin web UI on "
+                           f"{args.ui_host}:{args.ui_port}: {e}")
+
     def signal_handler(sig, frame):
         logger.info("Shutting down YAIL server...")
         shutdown_camera()
+        if webui_server is not None:
+            webui_server.shutdown()
         server.shutdown()
         logger.info("YAIL server shutdown complete")
         sys.exit(0)

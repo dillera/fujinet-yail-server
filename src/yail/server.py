@@ -21,6 +21,7 @@ from yail.gen import generate_image
 from yail.imaging import convert_image_to_yail
 from yail.protocol import GRAPHICS_8, build_error_packet
 from yail.search import search_images
+from yail.stats import STATS
 
 logger = logging.getLogger(__name__)
 
@@ -102,14 +103,20 @@ class ClientSession:
 
     def stream_image(self, url: str | None = None, filepath: str | None = None) -> bool:
         """Convert one image source to YAI bytes and send it. True on success."""
+        start = time.monotonic()
+        target = url or filepath or "?"
         try:
             image = fetch_image(url=url, filepath=filepath)
             self.socket.sendall(convert_image_to_yail(image, self.gfx_mode))
+            STATS.image_event(self.thread_id, self.client_mode or "?", target,
+                              self.gfx_mode, True, time.monotonic() - start)
             return True
         except (BrokenPipeError, ConnectionResetError):
             raise
         except Exception as e:
             logger.error(f"{self.thread_id} Failed to stream {url or filepath}: {e}")
+            STATS.image_event(self.thread_id, self.client_mode or "?", target,
+                              self.gfx_mode, False, time.monotonic() - start)
             return False
 
     def stream_random_from_urls(self) -> None:
@@ -138,8 +145,10 @@ class ClientSession:
 
     def stream_generated(self, prompt: str, model: str | None = None) -> None:
         logger.info(f"{self.thread_id} Generating image with prompt: '{prompt}'")
+        STATS.incr("generations")
         url_or_path = generate_image(prompt, self.gen_config, model=model)
         if not url_or_path:
+            STATS.incr("generation_failures")
             self.send_text("Failed to generate image", is_error=True)
             return
         if url_or_path.startswith("http"):
@@ -174,6 +183,7 @@ class ClientSession:
         self.client_mode = "search"
         prompt, rest = take_phrase(tokens[1:])
         logger.info(f"{self.thread_id} Received search '{prompt}'")
+        STATS.incr("searches")
         self.urls = search_images(prompt)
         self.stream_random_from_urls()
         return rest
@@ -310,6 +320,8 @@ class ClientSession:
                     logger.warning(f"{self.thread_id} Undecodable request, ignoring")
                     continue
                 tokens = r_string.rstrip(" \r\n").split(" ")
+                STATS.session_update(self.thread_id,
+                                     last_command=r_string.rstrip(" \r\n")[:120])
 
             logger.debug(f"{self.thread_id} Tokens {tokens}")
             command = tokens[0]
@@ -339,6 +351,9 @@ class ClientSession:
                 logger.info(f"{self.thread_id} Unrecognized command: {command!r}")
                 self.send_text("ACK!")
 
+            STATS.session_update(self.thread_id, mode=self.client_mode,
+                                 gfx_mode=self.gfx_mode)
+
 
 class YailServer:
     """Accept loop dispatching one ClientSession per connection."""
@@ -354,11 +369,13 @@ class YailServer:
         self._lock = threading.Lock()
         self._next_id = 0
 
-    def _handle_client(self, client_socket: socket.socket, thread_id: int) -> None:
+    def _handle_client(self, client_socket: socket.socket, thread_id: int,
+                       address: str = "?") -> None:
         with self._lock:
             self._connections += 1
             logger.info(f"Starting connection {thread_id} "
                         f"(active: {self._connections})")
+        STATS.session_started(thread_id, address)
 
         session = ClientSession(client_socket, thread_id, self.server_config,
                                 self.gen_config, self.filenames)
@@ -379,6 +396,7 @@ class YailServer:
                 client_socket.close()
             except OSError:
                 pass
+            STATS.session_ended(thread_id)
             with self._lock:
                 self._connections -= 1
                 logger.info(f"Closed connection {thread_id} (active: {self._connections})")
@@ -410,7 +428,7 @@ class YailServer:
             self._next_id += 1
             thread = threading.Thread(
                 target=self._handle_client,
-                args=(client_sock, self._next_id),
+                args=(client_sock, self._next_id, f"{address[0]}:{address[1]}"),
                 daemon=True,
             )
             thread.start()
