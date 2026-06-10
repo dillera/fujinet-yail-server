@@ -62,12 +62,10 @@ def build_parser() -> argparse.ArgumentParser:
                         default=None, help="Logging level")
     parser.add_argument("--env-file", default=None,
                         help="Path to an env file (default: ./.env, then legacy ./server/env)")
-    parser.add_argument("--openai-api-key", default=None, help="OpenAI API key")
+    parser.add_argument("--openrouter-api-key", default=None, help="OpenRouter API key")
     parser.add_argument("--gen-model", default=None,
-                        help="Image generation model (e.g. gpt-image-1, dall-e-3, gemini)")
-    parser.add_argument("--openai-size", default=None, help="Image size for generation")
-    parser.add_argument("--openai-quality", default=None, help="Image quality for generation")
-    parser.add_argument("--openai-style", default=None, help="Image style (dall-e-3 only)")
+                        help="Image generation model, an OpenRouter id "
+                             "(e.g. google/gemini-2.5-flash-image)")
     parser.add_argument("--ui-host", default="127.0.0.1",
                         help="Address for the admin web UI (default 127.0.0.1; "
                              "it can change API keys, so expose with care)")
@@ -114,21 +112,15 @@ def main(argv: list[str] | None = None) -> int:
     env_path = load_environment(args.env_file)
 
     logger.info("Environment:")
-    logger.info(f"  OPENAI_API_KEY: {'set' if os.environ.get('OPENAI_API_KEY') else 'not set'}")
-    logger.info(f"  GEMINI_API_KEY: {'set' if os.environ.get('GEMINI_API_KEY') else 'not set'}")
-    logger.info(f"  GEN_MODEL: {os.environ.get('GEN_MODEL', 'not set (default dall-e-3)')}")
+    logger.info(f"  OPENROUTER_API_KEY: "
+                f"{'set' if os.environ.get('OPENROUTER_API_KEY') else 'not set'}")
+    logger.info(f"  GEN_MODEL: {os.environ.get('GEN_MODEL', 'not set (server default)')}")
 
     gen_config = ImageGenConfig()
-    if args.openai_api_key:
-        gen_config.set_api_key(args.openai_api_key)
+    if args.openrouter_api_key:
+        gen_config.set_api_key(args.openrouter_api_key)
     if args.gen_model:
         gen_config.set_model(args.gen_model)
-    if args.openai_size:
-        gen_config.set_size(args.openai_size)
-    if args.openai_quality:
-        gen_config.set_quality(args.openai_quality)
-    if args.openai_style:
-        gen_config.set_style(args.openai_style)
     logger.info(f"Image generation: {gen_config}")
 
     # Local file serving is opt-in: --paths on the CLI is an explicit choice;

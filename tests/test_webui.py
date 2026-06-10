@@ -12,9 +12,8 @@ from yail.webui import WebUIContext, mask_key, start_webui
 
 @pytest.fixture
 def webui(tmp_path, monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-1234567890abcd")
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.setenv("GEN_MODEL", "dall-e-3")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test-1234567890abcd")
+    monkeypatch.setenv("GEN_MODEL", "google/gemini-2.5-flash-image")
     gen_config = ImageGenConfig()
     server_config = ServerConfig()
     env_path = tmp_path / ".env"
@@ -58,40 +57,39 @@ def test_status(webui):
     status = get_json(base + "/api/status")
     assert status["version"] == __version__
     assert status["local_files"] == 2
-    assert status["openai_key_set"] is True
-    assert status["gemini_key_set"] is False
+    assert status["openrouter_key_set"] is True
+    assert status["gen_model"] == "google/gemini-2.5-flash-image"
 
 
 def test_config_get_masks_keys(webui):
     base, _, _, _ = webui
     config = get_json(base + "/api/config")
-    assert config["model"] == "dall-e-3"
-    assert config["openai_api_key"] == "sk-...abcd"
-    assert "sk-test" not in json.dumps(config)
+    assert config["model"] == "google/gemini-2.5-flash-image"
+    assert config["openrouter_api_key"] == "sk-...abcd"
+    assert "sk-or-test" not in json.dumps(config)
 
 
 def test_config_post_applies_and_persists(webui):
     base, gen_config, env_path, _ = webui
     result = post_json(base + "/api/config", {
-        "model": "gpt-image-1", "size": "1536x1024", "quality": "high",
-        "gemini_api_key": "gm-key-9876543210", "persist": True,
+        "model": "black-forest-labs/flux.2-pro",
+        "openrouter_api_key": "sk-or-new-key-9876543210", "persist": True,
     })
     assert result["errors"] == []
-    assert set(result["applied"]) == {"model", "size", "quality", "gemini_api_key"}
+    assert set(result["applied"]) == {"model", "openrouter_api_key"}
     assert result["persisted"] is True
-    assert gen_config.model == "gpt-image-1"
-    assert gen_config.size == "1536x1024"
-    assert gen_config.gemini_api_key == "gm-key-9876543210"
+    assert gen_config.model == "black-forest-labs/flux.2-pro"
+    assert gen_config.api_key == "sk-or-new-key-9876543210"
     env_text = env_path.read_text()
-    assert "GEN_MODEL" in env_text and "gpt-image-1" in env_text
-    assert "gm-key-9876543210" in env_text
+    assert "GEN_MODEL" in env_text and "black-forest-labs/flux.2-pro" in env_text
+    assert "OPENROUTER_API_KEY" in env_text and "sk-or-new-key-9876543210" in env_text
 
 
-def test_config_post_rejects_invalid(webui):
+def test_config_post_legacy_model_resolved(webui):
     base, gen_config, _, _ = webui
-    result = post_json(base + "/api/config", {"size": "999x999"})
-    assert result["errors"]
-    assert gen_config.size != "999x999"
+    result = post_json(base + "/api/config", {"model": "gpt-image-1"})
+    assert result["errors"] == []
+    assert gen_config.model == "openai/gpt-image-1"
 
 
 def test_stats_reflects_sessions_and_images(webui):

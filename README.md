@@ -12,8 +12,8 @@ The wire protocol is documented in [PROTOCOL.md](PROTOCOL.md).
 ## Features
 
 - **Image search**: `search` finds images via the DDGS metasearch package
-- **AI image generation**: OpenAI (`gpt-image-1`; dall-e models are retired) and
-  Google Gemini (`gemini-2.5-flash-image` and other image-capable models)
+- **AI image generation**: any image-output model on OpenRouter
+  (Gemini image models, gpt-image-1, FLUX, Recraft, ...) with one API key
 - **Local image streaming**: serve a directory of images with `--paths`
 - **Direct URLs**: `showurl` streams a specific image URL
 - **Webcam streaming**: optional, via pygame (`[camera]` extra)
@@ -40,11 +40,8 @@ yail-server --paths /path/to/images --loglevel INFO
 # Choose a port (default 5556)
 yail-server --paths test_images --port 5556
 
-# Image generation with OpenAI
-yail-server --openai-api-key sk-... --gen-model gpt-image-1
-
-# Image generation with Google Gemini (requires GEMINI_API_KEY)
-yail-server --gen-model gemini
+# Image generation via OpenRouter (one key, any model)
+yail-server --openrouter-api-key sk-or-... --gen-model google/gemini-2.5-flash-image
 ```
 
 `python -m yail` works as an alternative to the `yail-server` script.
@@ -73,21 +70,16 @@ Copy `deployment/env.example` to `.env` in the working directory (or pass
 `--env-file path`):
 
 ```bash
-OPENAI_API_KEY=your_openai_api_key_here
-GEMINI_API_KEY=your_gemini_api_key_here_if_needed
-GEN_MODEL=gpt-image-1     # or gemini, ... (dall-e-* retired by OpenAI)
-OPENAI_SIZE=1024x1024
-OPENAI_QUALITY=auto       # gpt-image-1: low|medium|high|auto
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+GEN_MODEL=google/gemini-2.5-flash-image   # any OpenRouter image-output model
 ```
 
-### API keys
+### API key
 
-- OpenAI models (`gpt-image-1`, `dall-e-*`): [OpenAI API keys](https://platform.openai.com/api-keys)
-- Gemini models: [Google AI Studio](https://aistudio.google.com/)
-
-Model routing is automatic: names starting with `dall-e-` or `gpt-` use the
-OpenAI API; names containing `gemini` use the Google Gemini API (`gemini`
-alone selects `gemini-2.5-flash-image`).
+All generation goes through [OpenRouter](https://openrouter.ai/keys) — one
+key covers every image model. Model names use the OpenRouter `vendor/model`
+form; legacy bare names from deployed clients (`gpt-image-1`, `gemini`,
+`dall-e-*`) are resolved to OpenRouter equivalents automatically.
 
 ## Admin web UI
 

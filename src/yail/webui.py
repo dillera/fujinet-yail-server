@@ -127,8 +127,8 @@ class AdminRequestHandler(BaseHTTPRequestHandler):
             "camera_enabled": ctx.server_config.enable_camera,
             "search_backend": (f"ddgs {ddgs_version} "
                                f"[{','.join(ctx.server_config.search_backends)}]"),
-            "openai_key_set": bool(ctx.gen_config.api_key),
-            "gemini_key_set": bool(ctx.gen_config.gemini_api_key),
+            "openrouter_key_set": bool(ctx.gen_config.api_key),
+            "gen_model": ctx.gen_config.model,
         }
 
     def api_config(self) -> dict:
@@ -145,17 +145,10 @@ class AdminRequestHandler(BaseHTTPRequestHandler):
             "search_backends": list(server.search_backends),
             "search_max_results": server.search_max_results,
             "model": gen.model,
-            "size": gen.size,
-            "quality": gen.quality,
-            "style": gen.style,
             "system_prompt": gen.system_prompt,
-            "openai_api_key": mask_key(gen.api_key),
-            "gemini_api_key": mask_key(gen.gemini_api_key),
+            "openrouter_api_key": mask_key(gen.api_key),
             "env_file": os.path.abspath(self.context.env_path),
             "valid": {
-                "sizes": gen.VALID_SIZES,
-                "qualities": gen.VALID_QUALITIES,
-                "styles": gen.VALID_STYLES,
                 "search_backends": valid_search_backends(),
             },
         }
@@ -191,24 +184,17 @@ class AdminRequestHandler(BaseHTTPRequestHandler):
             if env_var:
                 to_persist[env_var] = str(value)
 
-        setting("model", gen.set_model, "GEN_MODEL")
-        setting("size", gen.set_size, "OPENAI_SIZE")
-        setting("quality", gen.set_quality, "OPENAI_QUALITY")
-        setting("style", gen.set_style, "OPENAI_STYLE")
+        setting("model", gen.set_model, None)
+        if "model" in applied:
+            # Persist the resolved OpenRouter id, not the raw input.
+            to_persist["GEN_MODEL"] = gen.model
         setting("system_prompt", gen.set_system_prompt, "OPENAI_SYSTEM_PROMPT")
 
-        openai_key = payload.get("openai_api_key")
-        if openai_key:
-            gen.set_api_key(openai_key)
-            applied.append("openai_api_key")
-            to_persist["OPENAI_API_KEY"] = openai_key
-
-        gemini_key = payload.get("gemini_api_key")
-        if gemini_key:
-            gen.gemini_api_key = gemini_key
-            logger.info("Gemini API key updated")
-            applied.append("gemini_api_key")
-            to_persist["GEMINI_API_KEY"] = gemini_key
+        openrouter_key = payload.get("openrouter_api_key")
+        if openrouter_key:
+            gen.set_api_key(openrouter_key)
+            applied.append("openrouter_api_key")
+            to_persist["OPENROUTER_API_KEY"] = openrouter_key
 
         server = self.context.server_config
         if "files_path" in payload:
@@ -405,20 +391,13 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
       <section>
         <h2>Generation Config</h2>
         <form id="cfgForm" onsubmit="return saveConfig(event)">
-          <div class="row">
-            <div><label>Model</label><input name="model" id="cfg_model"></div>
-            <div><label>Size</label><input name="size" id="cfg_size"></div>
-            <div><label>Quality</label><input name="quality" id="cfg_quality"></div>
-            <div><label>Style</label><input name="style" id="cfg_style"></div>
-          </div>
+          <label>Model (OpenRouter id, e.g. google/gemini-2.5-flash-image)</label>
+          <input name="model" id="cfg_model">
           <label>System prompt</label>
           <textarea name="system_prompt" id="cfg_prompt"></textarea>
-          <div class="row">
-            <div><label>OpenAI API key <span class="dim" id="cur_okey"></span></label>
-                 <input name="openai_api_key" id="cfg_okey" placeholder="leave blank to keep"></div>
-            <div><label>Gemini API key <span class="dim" id="cur_gkey"></span></label>
-                 <input name="gemini_api_key" id="cfg_gkey" placeholder="leave blank to keep"></div>
-          </div>
+          <label>OpenRouter API key <span class="dim" id="cur_orkey"></span></label>
+          <input name="openrouter_api_key" id="cfg_orkey" placeholder="leave blank to keep">
+
           <fieldset>
             <legend>Local files</legend>
             <label>Folder <span class="dim" id="cur_files"></span></label>
@@ -505,8 +484,8 @@ async function refreshStatus() {
       card("Total conns", s.total_connections) +
       card("Local files", s.files_enabled ? s.local_files : "off",
            s.files_enabled ? "" : "dim") +
-      card("OpenAI key", s.openai_key_set ? "set" : "missing", s.openai_key_set ? "ok" : "bad") +
-      card("Gemini key", s.gemini_key_set ? "set" : "missing", s.gemini_key_set ? "ok" : "bad");
+      card("OpenRouter key", s.openrouter_key_set ? "set" : "missing",
+           s.openrouter_key_set ? "ok" : "bad");
 }
 
 async function refreshStats() {
@@ -535,11 +514,9 @@ async function refreshLogs() {
 
 async function loadConfig() {
   const c = await getJSON("/api/config");
-  $("cfg_model").value = c.model; $("cfg_size").value = c.size;
-  $("cfg_quality").value = c.quality; $("cfg_style").value = c.style;
+  $("cfg_model").value = c.model;
   $("cfg_prompt").value = c.system_prompt;
-  $("cur_okey").textContent = c.openai_api_key ? `(${c.openai_api_key})` : "(not set)";
-  $("cur_gkey").textContent = c.gemini_api_key ? `(${c.gemini_api_key})` : "(not set)";
+  $("cur_orkey").textContent = c.openrouter_api_key ? `(${c.openrouter_api_key})` : "(not set)";
   $("cfg_fpath").value = c.files_path;
   $("cfg_fenabled").checked = c.files_enabled;
   $("cur_files").textContent = `(${c.files_count} files indexed)`;
@@ -582,10 +559,9 @@ function removeBackend(i) {
 async function saveConfig(ev) {
   ev.preventDefault();
   const body = {
-    model: $("cfg_model").value, size: $("cfg_size").value,
-    quality: $("cfg_quality").value, style: $("cfg_style").value,
+    model: $("cfg_model").value,
     system_prompt: $("cfg_prompt").value,
-    openai_api_key: $("cfg_okey").value, gemini_api_key: $("cfg_gkey").value,
+    openrouter_api_key: $("cfg_orkey").value,
     files_path: $("cfg_fpath").value, files_enabled: $("cfg_fenabled").checked,
     streaming_enabled: $("cfg_stream").checked,
     stream_max_retries: $("cfg_retries").value,
@@ -606,7 +582,7 @@ async function saveConfig(ev) {
                       (res.persisted ? " (saved)" : "");
     msg.className = "ok";
   }
-  $("cfg_okey").value = ""; $("cfg_gkey").value = "";
+  $("cfg_orkey").value = "";
   loadConfig(); refreshStatus();
   return false;
 }
