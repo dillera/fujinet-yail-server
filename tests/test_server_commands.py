@@ -127,7 +127,7 @@ def test_gen_routes_model_and_prompt(gen_config, monkeypatch):
     def fake_generate(prompt, cfg, model=None):
         seen["prompt"] = prompt
         seen["model"] = model
-        return TEST_IMAGE
+        return TEST_IMAGE, None
 
     monkeypatch.setattr("yail.server.generate_image", fake_generate)
     received = run_session(b'gen gpt-image-1 "a red rocket" quit', gen_config)

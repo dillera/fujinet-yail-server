@@ -5,6 +5,7 @@ import time
 import traceback
 
 from yail.config import ImageGenConfig
+from yail.gen.util import short_error
 
 logger = logging.getLogger(__name__)
 
@@ -19,16 +20,16 @@ GENERATED_DIR = "generated_images"
 
 
 def generate_image_with_gemini(prompt: str, gen_config: ImageGenConfig,
-                               model: str | None = None) -> str | None:
-    """Generate an image with Gemini and return the saved file path."""
+                               model: str | None = None) -> tuple[str | None, str | None]:
+    """Generate an image with Gemini; return (file_path, None) or (None, reason)."""
     if not GEMINI_AVAILABLE:
         logger.error("google-genai library not available. Install with: pip install google-genai")
-        return None
+        return None, "Gemini library not installed on server"
 
     api_key = gen_config.gemini_api_key
     if not api_key:
         logger.error("Gemini API key not provided. Set GEMINI_API_KEY.")
-        return None
+        return None, "Gemini API key not configured on server"
 
     model = model or gen_config.model
     if not gen_config.is_gemini_model(model):
@@ -41,7 +42,7 @@ def generate_image_with_gemini(prompt: str, gen_config: ImageGenConfig,
 
         if not response.candidates:
             logger.error("No candidates in Gemini response")
-            return None
+            return None, "Gemini returned no candidates"
 
         for part in response.candidates[0].content.parts:
             if getattr(part, "inline_data", None) and part.inline_data.data:
@@ -52,14 +53,14 @@ def generate_image_with_gemini(prompt: str, gen_config: ImageGenConfig,
                     f.write(part.inline_data.data)
                 abs_path = os.path.abspath(path)
                 logger.info(f"Image generated successfully with Gemini: {abs_path}")
-                return abs_path
+                return abs_path, None
             if getattr(part, "text", None):
                 logger.info(f"Gemini text response: {part.text}")
 
         logger.error("Failed to extract image from Gemini response")
-        return None
+        return None, "Gemini response contained no image"
 
     except Exception as e:
         logger.error(f"Error generating image with Gemini: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
-        return None
+        return None, short_error(e)

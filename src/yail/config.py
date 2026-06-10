@@ -55,7 +55,7 @@ class ImageGenConfig:
     DEFAULT_MODEL = "gpt-image-1"
     DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-image"
     DEFAULT_SIZE = "1024x1024"
-    DEFAULT_QUALITY = "standard"
+    DEFAULT_QUALITY = "auto"   # gpt-image-1 quality; dall-e used "standard"
     DEFAULT_STYLE = "vivid"
 
     # Per model family.  "style" only applies to dall-e-3.

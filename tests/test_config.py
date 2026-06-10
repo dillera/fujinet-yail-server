@@ -13,9 +13,9 @@ def clean_env(monkeypatch):
 
 def test_defaults():
     cfg = ImageGenConfig()
-    assert cfg.model == "dall-e-3"
+    assert cfg.model == "gpt-image-1"
     assert cfg.size == "1024x1024"
-    assert cfg.quality == "standard"
+    assert cfg.quality == "auto"
     assert cfg.style == "vivid"
 
 
@@ -33,7 +33,7 @@ def test_bare_gemini_resolves_to_default_image_model(monkeypatch):
 
 def test_invalid_model_falls_back(monkeypatch):
     monkeypatch.setenv("GEN_MODEL", "stable-diffusion-9000")
-    assert ImageGenConfig().model == "dall-e-3"
+    assert ImageGenConfig().model == "gpt-image-1"
 
 
 def test_model_routing():
@@ -46,18 +46,18 @@ def test_model_routing():
 
 def test_set_size_validates_per_model():
     cfg = ImageGenConfig()
-    assert cfg.set_size("1792x1024")           # valid for dall-e-3
-    assert not cfg.set_size("1536x1024")       # gpt-image-1 size, invalid for dall-e-3
-    assert cfg.set_model("gpt-image-1")
-    assert cfg.set_size("1536x1024")
+    assert cfg.set_size("1536x1024")           # valid for gpt-image-1
+    assert not cfg.set_size("1792x1024")       # dall-e-3 size, invalid for gpt-image-1
+    assert cfg.set_model("dall-e-3")
+    assert cfg.set_size("1792x1024")
 
 
 def test_set_quality_validates_per_model():
     cfg = ImageGenConfig()
-    assert cfg.set_quality("hd")
-    assert not cfg.set_quality("high")
-    cfg.set_model("gpt-image-1")
     assert cfg.set_quality("high")
+    assert not cfg.set_quality("hd")
+    cfg.set_model("dall-e-3")
+    assert cfg.set_quality("hd")
 
 
 def test_set_system_prompt_returns_true():

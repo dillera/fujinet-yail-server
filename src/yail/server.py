@@ -149,10 +149,11 @@ class ClientSession:
     def stream_generated(self, prompt: str, model: str | None = None) -> None:
         logger.info(f"{self.thread_id} Generating image with prompt: '{prompt}'")
         STATS.incr("generations")
-        url_or_path = generate_image(prompt, self.gen_config, model=model)
+        url_or_path, error = generate_image(prompt, self.gen_config, model=model)
         if not url_or_path:
             STATS.incr("generation_failures")
-            self.send_text("Failed to generate image", is_error=True)
+            self.send_text(f"Generation failed: {error or 'unknown error'}",
+                           is_error=True)
             return
         if url_or_path.startswith("http"):
             ok = self.stream_image(url=url_or_path)

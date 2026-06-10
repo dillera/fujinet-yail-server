@@ -6,6 +6,7 @@ import time
 import traceback
 
 from yail.config import ImageGenConfig
+from yail.gen.util import short_error
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +39,11 @@ def _rejected_param(e: Exception) -> str | None:
 
 
 def generate_image_with_openai(prompt: str, gen_config: ImageGenConfig,
-                               model: str | None = None) -> str | None:
-    """Generate an image with OpenAI; return a URL (DALL-E) or file path (gpt-image-1)."""
+                               model: str | None = None) -> tuple[str | None, str | None]:
+    """Generate an image with OpenAI; return (url_or_path, None) or (None, reason)."""
     if not OPENAI_AVAILABLE:
         logger.error("OpenAI library not available. Install with: pip install openai")
-        return None
+        return None, "OpenAI library not installed on server"
 
     api_key = gen_config.api_key
     model = model or gen_config.model
@@ -50,7 +51,7 @@ def generate_image_with_openai(prompt: str, gen_config: ImageGenConfig,
 
     if not api_key:
         logger.error("OpenAI API key not provided. Set OPENAI_API_KEY.")
-        return None
+        return None, "OpenAI API key not configured on server"
 
     try:
         logger.info(f"Generating image with OpenAI model: {model}, prompt: '{prompt}'")
@@ -91,15 +92,15 @@ def generate_image_with_openai(prompt: str, gen_config: ImageGenConfig,
         item = response.data[0]
         if getattr(item, "url", None):
             logger.info(f"Image generated successfully with OpenAI: {item.url}")
-            return item.url
+            return item.url, None
         if getattr(item, "b64_json", None):
             path = _save_b64_image(item.b64_json, "openai")
             logger.info(f"Image generated successfully with OpenAI: {path}")
-            return path
+            return path, None
         logger.error("OpenAI response contained neither a URL nor image data")
-        return None
+        return None, "OpenAI returned no image data"
 
     except Exception as e:
         logger.error(f"Error generating image with OpenAI: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
-        return None
+        return None, short_error(e)
