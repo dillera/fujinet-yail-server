@@ -46,9 +46,10 @@ Sent by the client in `gfx <mode>` (decimal) and echoed in packet headers:
 | 4 | Graphics 9 | GTIA 16-luminance mode (PRIOR[7:6]=%01): 80×220, two 4-bit pixels per byte, 40 bytes/line |
 | 6 | Graphics 15 | ANTIC mode E: 160×220, four 2-bit pixels per byte, 40 bytes/line; 4-level gray ramp via COLBK/PF0/PF1/PF2 |
 | 8 | Graphics 11 | GTIA 16-hue mode (PRIOR[7:6]=%11): 80×220, two 4-bit hue indices per byte, 40 bytes/line; luminance from COLBK, pixel value 0 always black |
+| 10 | Graphics 10 | GTIA 9-color mode (PRIOR[7:6]=%10): 80×220, two 4-bit pixels per byte; adaptive per-image palette sent in a v1.4 palette block (see below) |
 | 16 | VBXE | 320×240, 8-bit palette indices, 256-color RGB palette |
 
-Anything that is not 2, 4, 6, or 8 is treated as VBXE by the server.
+Anything that is not 2, 4, 6, 8, or 10 is treated as VBXE by the server.
 
 > Historical note: the legacy server defined `GRAPHICS_11 = 8` but never
 > implemented it; the legacy client sent its internal defines raw
@@ -92,6 +93,21 @@ Block types: `0x04` DL, `0x05` XDL, `0x06` palette, `0x07` image data,
 `0xFF` error. The standard VBXE image is two blocks: a 768-byte palette
 (256 × RGB) then 76800 bytes of pixel indices. Palette entry 0 is forced
 to black; pixel values are shifted up by one accordingly.
+
+## YAI image packet, Graphics 10 (v1.4 framing)
+
+Graphics 10 needs a per-image palette, so it reuses the v1.4 two-block
+layout with `gfx_mode = 10`:
+
+| Block | Size | Contents |
+| --- | --- | --- |
+| `0x06` palette | 9 | Atari color bytes (hue<<4 \| lum) for the GTIA mode 10 sources in register order P0–P3, PF0–PF3, BAK |
+| `0x07` image | 8800 | Framebuffer, 220 lines × 40 bytes, two 4-bit pixels per byte |
+
+Pixel values 0–3 select P0–P3, 4–7 select PF0–PF3, 8 selects BAK
+(GTIA decodes %10xx as background). The palette is sorted darkest
+first because GTIA renders the screen border in P0's color. Total
+packet: 8824 bytes.
 
 ## Error packet
 

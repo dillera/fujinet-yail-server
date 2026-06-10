@@ -15,6 +15,7 @@ from yail.protocol import (
     ERROR_BLOCK,
     GRAPHICS_8,
     GRAPHICS_9,
+    GRAPHICS_10,
     GRAPHICS_11,
     GRAPHICS_15,
     IMAGE_BLOCK,
@@ -67,6 +68,24 @@ def test_gfx15_packet_structure(splash):
     assert packet[4] == 0x03                        # legacy block token
     assert struct.unpack("<H", packet[5:7])[0] == 8800
     assert len(packet) == 7 + 8800
+
+
+def test_gfx10_packet_structure(splash):
+    """Graphics 10 uses a v1.4 two-block packet: 9-byte palette + image."""
+    packet = bytes(convert_image_to_yail(splash.copy(), GRAPHICS_10))
+    assert packet[:3] == bytes([1, 4, 0])          # version 1.4.0
+    assert packet[3] == GRAPHICS_10
+    assert packet[4] == 2                           # two blocks
+    assert packet[5] == PALETTE_BLOCK
+    assert struct.unpack("<I", packet[6:10])[0] == 9
+    img_off = 10 + 9
+    assert packet[img_off] == IMAGE_BLOCK
+    assert struct.unpack("<I", packet[img_off+1:img_off+5])[0] == 8800
+    assert len(packet) == img_off + 5 + 8800
+    # every nibble must be a valid mode 10 pixel value (0-8)
+    payload = np.frombuffer(packet[img_off+5:], dtype=np.uint8)
+    nibbles = np.concatenate([payload >> 4, payload & 0x0F])
+    assert nibbles.max() <= 8
 
 
 def test_gfx11_pixels_are_valid_hue_indices(splash):

@@ -13,6 +13,7 @@ GRAPHICS_8 = 2
 GRAPHICS_9 = 4
 GRAPHICS_15 = 6
 GRAPHICS_11 = 8
+GRAPHICS_10 = 10
 VBXE = 16
 
 # Target raster geometry for ANTIC modes (320x220, 40 bytes per line).

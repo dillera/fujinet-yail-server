@@ -4,13 +4,15 @@ The numeric behavior (resampling filters, dithering, bit packing) is frozen
 to remain byte-identical with the legacy server output.
 """
 import logging
+from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageOps
 
 from yail.protocol import (
     GRAPHICS_8,
     GRAPHICS_9,
+    GRAPHICS_10,
     GRAPHICS_11,
     GRAPHICS_15,
     VBXE_H,
@@ -121,6 +123,38 @@ def pack_shades(image: Image.Image) -> np.ndarray:
 # default NTSC palette gray ramp at those luminances.
 GR15_GRAYS = [0, 171, 255, 89]
 
+# Full 256-entry GTIA palette (16 hues x 16 luminances) from atari800's
+# default NTSC palette; the byte index is the Atari color value the client
+# pokes into a color register (hue<<4 | luminance).
+ATARI_NTSC_PALETTE = np.frombuffer(
+    (Path(__file__).parent / "atari_ntsc.act").read_bytes(), dtype=np.uint8
+).reshape(256, 3).astype(np.int32)
+
+
+def _to_ycc(rgb: np.ndarray) -> np.ndarray:
+    """BT.601 RGB -> (Y, Cb, Cr), float."""
+    rgb = np.asarray(rgb, dtype=np.float64)
+    y = rgb @ np.array([0.299, 0.587, 0.114])
+    cb = (rgb[..., 2] - y) * 0.564
+    cr = (rgb[..., 0] - y) * 0.713
+    return np.stack([y, cb, cr], axis=-1)
+
+
+# Chroma errors weigh more than luma when snapping to the GTIA palette:
+# the final dither pass can recover brightness but never hue/saturation,
+# and plain RGB distance drifts toward the palette's washed-out entries.
+GR10_CHROMA_WEIGHT = 4.0
+
+_PALETTE_YCC = _to_ycc(ATARI_NTSC_PALETTE)
+
+
+def nearest_atari_color(rgb) -> int:
+    """Return the Atari color byte perceptually closest to rgb."""
+    diff = _PALETTE_YCC - _to_ycc(rgb)
+    dist = diff[:, 0] ** 2 + GR10_CHROMA_WEIGHT * (diff[:, 1] ** 2 + diff[:, 2] ** 2)
+    return int(np.argmin(dist))
+
+
 # Pixels darker than this (HSV value, 0-255) become GTIA pixel 0 (black).
 GR11_BLACK_THRESHOLD = 40
 # Brightness the hues are normalized to before matching; roughly the luma of
@@ -169,6 +203,9 @@ def pack_quads(image: Image.Image) -> np.ndarray:
     targets the actual displayed grays.
     """
     yail = image.resize((int(YAIL_W / 2), YAIL_H), Image.LANCZOS)
+    # Per-image tone stretch: with only four grays, dynamic range matters
+    # more than fidelity to the source's absolute levels.
+    yail = ImageOps.autocontrast(yail, cutoff=1)
 
     palette_image = Image.new("P", (1, 1))
     palette_image.putpalette([g for gray in GR15_GRAYS for g in (gray,) * 3])
@@ -184,6 +221,74 @@ def pack_quads(image: Image.Image) -> np.ndarray:
         | im_values[:, 3::4]
     )
     return combined.astype("uint8")
+
+
+# Graphics 10 tuning knobs.
+GR10_AUTOCONTRAST_CUTOFF = 1     # % of histogram clipped per end before quantizing
+GR10_SATURATION = 1.5            # chroma boost: median-cut centroids average away
+                                 # saturation and GTIA hues need strong signals
+GR10_CANDIDATE_COLORS = (9, 12, 16, 24, 32)
+
+
+def pack_9color(image: Image.Image) -> tuple[bytes, bytes]:
+    """Quantize an RGB image for Graphics 10: adaptive 9-color palette.
+
+    Returns (packed_pixels, palette).  Pixel values 0-8 select the GTIA
+    mode 10 color sources in register order P0-P3, PF0-PF3, BAK; the
+    9-byte palette holds the Atari color values (hue<<4|lum) the client
+    pokes into those registers.  The palette is sorted darkest-first
+    because GTIA renders borders (and forced-blank pixels) in P0's color.
+
+    Palette selection works in displayed-color space: median-cut
+    centroids are snapped to the GTIA palette and deduplicated (several
+    centroids often snap to one GTIA color), widening the candidate set
+    until nine distinct GTIA colors are found.  The final dither then
+    runs against the snapped colors the Atari actually shows, so the
+    error diffusion corrects toward real output instead of ideal
+    centroids that don't exist on screen.
+    """
+    yail = image.resize((int(YAIL_W / 4), YAIL_H), Image.LANCZOS)
+    yail = ImageOps.autocontrast(yail, cutoff=GR10_AUTOCONTRAST_CUTOFF)
+    yail = ImageEnhance.Color(yail).enhance(GR10_SATURATION)
+
+    chosen: list[int] = []
+    for candidates in GR10_CANDIDATE_COLORS:
+        quantized = yail.quantize(colors=candidates, dither=Image.NONE)
+        pal = np.array(
+            quantized.getpalette()[: candidates * 3], dtype=np.int32
+        ).reshape(candidates, 3)
+        counts = np.bincount(
+            np.asarray(quantized, dtype=np.int64).ravel(), minlength=candidates
+        )
+        chosen = []
+        for i in np.argsort(-counts):            # most-used colors first
+            if counts[i] == 0:
+                break
+            color = nearest_atari_color(pal[i])
+            if color not in chosen:
+                chosen.append(color)
+            if len(chosen) == 9:
+                break
+        if len(chosen) == 9:
+            break
+    while len(chosen) < 9:                       # low-color sources: pad black
+        chosen.append(0)
+
+    displayed = ATARI_NTSC_PALETTE[chosen]
+    luma = displayed @ np.array([299, 587, 114])
+    order = np.argsort(luma, kind="stable")      # darkest palette entry first
+    chosen = [chosen[i] for i in order]
+    displayed = ATARI_NTSC_PALETTE[chosen]
+
+    palette_image = Image.new("P", (1, 1))
+    palette_image.putpalette([int(v) for rgb in displayed for v in rgb])
+    indexed = yail.quantize(palette=palette_image, dither=Image.FLOYDSTEINBERG)
+    indices = np.array(indexed, dtype=np.uint8)
+
+    evens = indices[:, ::2]
+    odds = indices[:, 1::2]
+    packed = ((evens << 4) | odds).astype("uint8")
+    return packed.tobytes(), bytes(chosen)
 
 
 def convert_image_to_yail(image: Image.Image, gfx_mode: int) -> bytearray:
@@ -209,6 +314,15 @@ def convert_image_to_yail(image: Image.Image, gfx_mode: int) -> bytearray:
         rgb = fix_aspect(rgb)
         rgb = rgb.resize((YAIL_W, YAIL_H), Image.LANCZOS)
         return build_yai_packet(pack_hues(rgb), gfx_mode)
+
+    if gfx_mode == GRAPHICS_10:
+        rgb = image.convert(mode="RGB")
+        rgb = fix_aspect(rgb)
+        rgb = rgb.resize((YAIL_W, YAIL_H), Image.LANCZOS)
+        pixels, palette = pack_9color(rgb)
+        # v1.4 two-block packet: palette block then image block, like VBXE
+        # but with 9 Atari color bytes instead of a 768-byte RGB palette.
+        return build_vbxe_packet(pixels, palette, gfx_mode)
 
     # VBXE: 320x240 with a 256-color adaptive palette.
     resized = prep_image_for_vbxe(image, target_width=VBXE_W, target_height=VBXE_H)
