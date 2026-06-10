@@ -20,6 +20,13 @@ def generate_image(prompt: str, gen_config: ImageGenConfig,
     """Generate an image; return (url_or_path, None) or (None, reason)."""
     model = model or gen_config.model
 
+    # OpenAI retired the dall-e-* models, but deployed client binaries still
+    # request them by name; serve those requests with the current model.
+    if model.lower().startswith("dall-e"):
+        logger.warning(f"Requested retired model '{model}'; "
+                       f"using {gen_config.DEFAULT_MODEL} instead")
+        model = gen_config.DEFAULT_MODEL
+
     logger.info(f"Generating image with model: {model}, prompt: '{prompt}'")
 
     if gen_config.is_gemini_model(model):

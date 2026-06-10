@@ -195,14 +195,21 @@ class ClientSession:
         return rest
 
     def handle_generate(self, tokens: list[str]) -> list[str]:
-        # Client format: gen <model> "<prompt>"
+        # Current clients send 'gen "<prompt>"' and the server picks the
+        # model; legacy clients send 'gen <model> "<prompt>"'.
         self.client_mode = "generate"
-        if len(tokens) < 3:
-            self.send_text("Usage: gen <model> <prompt>", is_error=True)
+        if len(tokens) < 2:
+            self.send_text("Usage: gen [model] <prompt>", is_error=True)
             return []
-        model = tokens[1]
-        prompt, rest = take_phrase(tokens[2:])
-        logger.info(f"{self.thread_id} Received {tokens[0]} model={model} prompt='{prompt}'")
+        model: str | None = None
+        if tokens[1].startswith('"') or not self.gen_config.is_valid_model(tokens[1]):
+            # No model token (or a bare prompt word): server picks the model.
+            prompt, rest = take_phrase(tokens[1:])
+        else:
+            model = tokens[1]
+            prompt, rest = take_phrase(tokens[2:])
+        logger.info(f"{self.thread_id} Received {tokens[0]} "
+                    f"model={model or '(server default)'} prompt='{prompt}'")
         self.last_prompt = prompt
         self.last_model = model
         self.stream_generated(prompt, model=model)

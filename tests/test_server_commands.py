@@ -138,6 +138,39 @@ def test_gen_routes_model_and_prompt(gen_config, monkeypatch):
     assert received[:3] == bytes([1, 1, 0])  # image streamed
 
 
+def test_gen_without_model_uses_server_default(gen_config, monkeypatch):
+    seen = {}
+
+    def fake_generate(prompt, cfg, model=None):
+        seen["prompt"] = prompt
+        seen["model"] = model
+        return TEST_IMAGE, None
+
+    monkeypatch.setattr("yail.server.generate_image", fake_generate)
+    received = run_session(b'gen "a red rocket" quit', gen_config)
+
+    # No model token: the server's configured model decides.
+    assert seen["model"] is None
+    assert seen["prompt"] == "a red rocket"
+    assert received[:3] == bytes([1, 1, 0])
+
+
+def test_gen_bare_word_treated_as_prompt(gen_config, monkeypatch):
+    seen = {}
+
+    def fake_generate(prompt, cfg, model=None):
+        seen["prompt"] = prompt
+        seen["model"] = model
+        return TEST_IMAGE, None
+
+    monkeypatch.setattr("yail.server.generate_image", fake_generate)
+    # Unquoted prompts consume the rest of the buffer (legacy tokenizer),
+    # so no trailing 'quit' here; the session ends with the socket.
+    run_session(b"gen sailboat", gen_config)
+    assert seen["model"] is None
+    assert seen["prompt"] == "sailboat"
+
+
 def test_search_uses_ddgs_results(gen_config, monkeypatch):
     monkeypatch.setattr("yail.server.search_images",
                         lambda term, max_images=1000, backends=None: [])
