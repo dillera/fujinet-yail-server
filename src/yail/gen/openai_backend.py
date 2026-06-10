@@ -27,6 +27,16 @@ def _save_b64_image(b64_data: str, prefix: str) -> str:
     return os.path.abspath(path)
 
 
+def _rejected_param(e: Exception) -> str | None:
+    """Return the parameter name from an 'unknown_parameter' API error."""
+    body = getattr(e, "body", None) or {}
+    if isinstance(body, dict):
+        err = body.get("error", body)
+        if isinstance(err, dict) and err.get("code") == "unknown_parameter":
+            return err.get("param")
+    return None
+
+
 def generate_image_with_openai(prompt: str, gen_config: ImageGenConfig,
                                model: str | None = None) -> str | None:
     """Generate an image with OpenAI; return a URL (DALL-E) or file path (gpt-image-1)."""
@@ -46,6 +56,7 @@ def generate_image_with_openai(prompt: str, gen_config: ImageGenConfig,
         logger.info(f"Generating image with OpenAI model: {model}, prompt: '{prompt}'")
         client = openai.OpenAI(api_key=api_key)
 
+        kwargs: dict = {"model": model, "prompt": prompt, "n": 1}
         if model.lower().startswith("gpt-image"):
             # gpt-image-1 returns base64 only and uses its own quality values.
             quality = gen_config.quality
@@ -53,28 +64,40 @@ def generate_image_with_openai(prompt: str, gen_config: ImageGenConfig,
                 quality = "auto"
             if size not in gen_config.VALID_SIZES["gpt-image-1"]:
                 size = "auto"
-            response = client.images.generate(
-                model=model, prompt=prompt, size=size, quality=quality, n=1,
-            )
-            path = _save_b64_image(response.data[0].b64_json, "openai")
+            kwargs.update(size=size, quality=quality)
+        elif model.lower() == "dall-e-3":
+            kwargs.update(size=size, quality=gen_config.quality,
+                          style=gen_config.style)
+        else:
+            # DALL-E 2 (and unknown gpt-* fallbacks): size only.
+            kwargs.update(size=size)
+
+        # The Images API drops legacy parameters over time (response_format
+        # and style are already gone) and rejects them with 400
+        # unknown_parameter. Retry without any parameter it refuses.
+        while True:
+            try:
+                response = client.images.generate(**kwargs)
+                break
+            except openai.BadRequestError as e:
+                param = _rejected_param(e)
+                if param and param in kwargs and param not in ("model", "prompt"):
+                    logger.warning(f"OpenAI rejected parameter '{param}'; "
+                                   f"retrying without it")
+                    kwargs.pop(param)
+                    continue
+                raise
+
+        item = response.data[0]
+        if getattr(item, "url", None):
+            logger.info(f"Image generated successfully with OpenAI: {item.url}")
+            return item.url
+        if getattr(item, "b64_json", None):
+            path = _save_b64_image(item.b64_json, "openai")
             logger.info(f"Image generated successfully with OpenAI: {path}")
             return path
-
-        if model.lower() == "dall-e-3":
-            response = client.images.generate(
-                model=model, prompt=prompt, size=size,
-                quality=gen_config.quality, style=gen_config.style,
-                n=1, response_format="url",
-            )
-        else:
-            # DALL-E 2 (and unknown gpt-* fallbacks): no quality/style params.
-            response = client.images.generate(
-                model=model, prompt=prompt, size=size, n=1, response_format="url",
-            )
-
-        image_url = response.data[0].url
-        logger.info(f"Image generated successfully with OpenAI: {image_url}")
-        return image_url
+        logger.error("OpenAI response contained neither a URL nor image data")
+        return None
 
     except Exception as e:
         logger.error(f"Error generating image with OpenAI: {e}")

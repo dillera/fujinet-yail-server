@@ -12,7 +12,7 @@ The wire protocol is documented in [PROTOCOL.md](PROTOCOL.md).
 ## Features
 
 - **Image search**: `search` finds images via the DDGS metasearch package
-- **AI image generation**: OpenAI (`gpt-image-1`, `dall-e-3`, `dall-e-2`) and
+- **AI image generation**: OpenAI (`gpt-image-1`; dall-e models are retired) and
   Google Gemini (`gemini-2.5-flash-image` and other image-capable models)
 - **Local image streaming**: serve a directory of images with `--paths`
 - **Direct URLs**: `showurl` streams a specific image URL
@@ -75,10 +75,9 @@ Copy `deployment/env.example` to `.env` in the working directory (or pass
 ```bash
 OPENAI_API_KEY=your_openai_api_key_here
 GEMINI_API_KEY=your_gemini_api_key_here_if_needed
-GEN_MODEL=dall-e-3        # gpt-image-1, dall-e-3, dall-e-2, gemini, ...
+GEN_MODEL=gpt-image-1     # or gemini, ... (dall-e-* retired by OpenAI)
 OPENAI_SIZE=1024x1024
-OPENAI_QUALITY=standard   # dall-e-3: standard|hd; gpt-image-1: low|medium|high|auto
-OPENAI_STYLE=vivid        # dall-e-3 only: vivid|natural
+OPENAI_QUALITY=auto       # gpt-image-1: low|medium|high|auto
 ```
 
 ### API keys

@@ -50,7 +50,9 @@ class ImageGenConfig:
     OPENAI_MODEL_PREFIXES = ["dall-e-", "gpt-"]
     GEMINI_MODEL_PREFIXES = ["gemini"]
 
-    DEFAULT_MODEL = "dall-e-3"
+    # dall-e-* models were retired from the OpenAI Images API in 2025/2026;
+    # gpt-image-1 is the current generation model.
+    DEFAULT_MODEL = "gpt-image-1"
     DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-image"
     DEFAULT_SIZE = "1024x1024"
     DEFAULT_QUALITY = "standard"
