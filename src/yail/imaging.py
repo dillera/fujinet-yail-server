@@ -12,6 +12,7 @@ from yail.protocol import (
     GRAPHICS_8,
     GRAPHICS_9,
     GRAPHICS_11,
+    GRAPHICS_15,
     VBXE_H,
     VBXE_W,
     YAIL_H,
@@ -114,6 +115,12 @@ def pack_shades(image: Image.Image) -> np.ndarray:
     return combined.astype("int8")
 
 
+# Graphics 15 (ANTIC E) gray levels for pixel values %00-%11.  The client
+# programs COLBK=0x00, PF0=0x06, PF1=0x0E, PF2=0x03 (PF1 white / PF2 dark
+# so the mode 0 console stays readable); RGB sampled from atari800's
+# default NTSC palette gray ramp at those luminances.
+GR15_GRAYS = [0, 171, 255, 89]
+
 # Pixels darker than this (HSV value, 0-255) become GTIA pixel 0 (black).
 GR11_BLACK_THRESHOLD = 40
 # Brightness the hues are normalized to before matching; roughly the luma of
@@ -153,17 +160,45 @@ def pack_hues(image: Image.Image) -> np.ndarray:
     return combined.astype("uint8")
 
 
+def pack_quads(image: Image.Image) -> np.ndarray:
+    """Pack a grayscale image into Graphics 15 bytes (four 2-bit pixels/byte).
+
+    ANTIC E is 160 pixels wide; each byte holds four pixels, leftmost in
+    the top bits.  Pixel values index the client's COLBK/PF0/PF1/PF2 gray
+    ramp (GR15_GRAYS), which is not monotonically bright, so quantization
+    targets the actual displayed grays.
+    """
+    yail = image.resize((int(YAIL_W / 2), YAIL_H), Image.LANCZOS)
+
+    palette_image = Image.new("P", (1, 1))
+    palette_image.putpalette([g for gray in GR15_GRAYS for g in (gray,) * 3])
+    indexed = yail.convert("RGB").quantize(
+        palette=palette_image, dither=Image.FLOYDSTEINBERG
+    )
+
+    im_values = np.array(indexed).astype("uint8")
+    combined = (
+        (im_values[:, ::4] << 6)
+        | (im_values[:, 1::4] << 4)
+        | (im_values[:, 2::4] << 2)
+        | im_values[:, 3::4]
+    )
+    return combined.astype("uint8")
+
+
 def convert_image_to_yail(image: Image.Image, gfx_mode: int) -> bytearray:
     """Convert a PIL image to a complete YAI packet for the given mode."""
     logger.debug(f"Source image size={image.size} mode={image.mode} format={image.format}")
 
-    if gfx_mode in (GRAPHICS_8, GRAPHICS_9):
+    if gfx_mode in (GRAPHICS_8, GRAPHICS_9, GRAPHICS_15):
         gray = image.convert(mode="L")
         gray = fix_aspect(gray)
         gray = gray.resize((YAIL_W, YAIL_H), Image.LANCZOS)
 
         if gfx_mode == GRAPHICS_8:
             image_data = pack_bits(dither_image(gray))
+        elif gfx_mode == GRAPHICS_15:
+            image_data = pack_quads(gray)
         else:
             image_data = pack_shades(gray)
 

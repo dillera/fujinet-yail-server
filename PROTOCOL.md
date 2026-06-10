@@ -44,10 +44,11 @@ Sent by the client in `gfx <mode>` (decimal) and echoed in packet headers:
 | --- | --- | --- |
 | 2 | Graphics 8 | ANTIC mode F: 320×220 here (custom display list), 1-bit pixels, 40 bytes/line, dithered |
 | 4 | Graphics 9 | GTIA 16-luminance mode (PRIOR[7:6]=%01): 80×220, two 4-bit pixels per byte, 40 bytes/line |
+| 6 | Graphics 15 | ANTIC mode E: 160×220, four 2-bit pixels per byte, 40 bytes/line; 4-level gray ramp via COLBK/PF0/PF1/PF2 |
 | 8 | Graphics 11 | GTIA 16-hue mode (PRIOR[7:6]=%11): 80×220, two 4-bit hue indices per byte, 40 bytes/line; luminance from COLBK, pixel value 0 always black |
 | 16 | VBXE | 320×240, 8-bit palette indices, 256-color RGB palette |
 
-Anything that is not 2, 4, or 8 is treated as VBXE by the server.
+Anything that is not 2, 4, 6, or 8 is treated as VBXE by the server.
 
 > Historical note: the legacy server defined `GRAPHICS_11 = 8` but never
 > implemented it; the legacy client sent its internal defines raw
@@ -63,14 +64,14 @@ Source: Graphics 8/9 mode facts verified against the Altirra Hardware
 Reference Manual (GTIA mode 9, PRIOR[7:6]=%01, p.154) and the Atari
 Assembly Language Programmer's Guide via the a8 MCP index.
 
-## YAI image packet, version 1.1 (Graphics 8/9/11)
+## YAI image packet, version 1.1 (Graphics 8/9/11/15)
 
 Total 8807 bytes:
 
 | Offset | Size | Value |
 | --- | --- | --- |
 | 0 | 3 | Version `01 01 00` |
-| 3 | 1 | Graphics mode (2, 4, or 8) |
+| 3 | 1 | Graphics mode (2, 4, 6, or 8) |
 | 4 | 1 | Block token `0x03` |
 | 5 | 2 | Payload size, little-endian u16 (`0x2260` = 8800) |
 | 7 | 8800 | Framebuffer: 220 lines × 40 bytes |

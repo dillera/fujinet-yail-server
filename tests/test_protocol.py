@@ -16,6 +16,7 @@ from yail.protocol import (
     GRAPHICS_8,
     GRAPHICS_9,
     GRAPHICS_11,
+    GRAPHICS_15,
     IMAGE_BLOCK,
     PALETTE_BLOCK,
     VBXE,
@@ -53,6 +54,16 @@ def test_gfx11_packet_structure(splash):
     packet = bytes(convert_image_to_yail(splash.copy(), GRAPHICS_11))
     assert packet[:3] == bytes([1, 1, 0])          # version 1.1.0
     assert packet[3] == GRAPHICS_11
+    assert packet[4] == 0x03                        # legacy block token
+    assert struct.unpack("<H", packet[5:7])[0] == 8800
+    assert len(packet) == 7 + 8800
+
+
+def test_gfx15_packet_structure(splash):
+    """Graphics 15 reuses the v1.1 framebuffer packet with mode token 6."""
+    packet = bytes(convert_image_to_yail(splash.copy(), GRAPHICS_15))
+    assert packet[:3] == bytes([1, 1, 0])          # version 1.1.0
+    assert packet[3] == GRAPHICS_15
     assert packet[4] == 0x03                        # legacy block token
     assert struct.unpack("<H", packet[5:7])[0] == 8800
     assert len(packet) == 7 + 8800

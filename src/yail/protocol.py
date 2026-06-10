@@ -11,6 +11,7 @@ import numpy as np
 # and echoed back in every packet header.
 GRAPHICS_8 = 2
 GRAPHICS_9 = 4
+GRAPHICS_15 = 6
 GRAPHICS_11 = 8
 VBXE = 16
 
