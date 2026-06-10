@@ -44,27 +44,33 @@ Sent by the client in `gfx <mode>` (decimal) and echoed in packet headers:
 | --- | --- | --- |
 | 2 | Graphics 8 | ANTIC mode F: 320×220 here (custom display list), 1-bit pixels, 40 bytes/line, dithered |
 | 4 | Graphics 9 | GTIA 16-luminance mode (PRIOR[7:6]=%01): 80×220, two 4-bit pixels per byte, 40 bytes/line |
+| 8 | Graphics 11 | GTIA 16-hue mode (PRIOR[7:6]=%11): 80×220, two 4-bit hue indices per byte, 40 bytes/line; luminance from COLBK, pixel value 0 always black |
 | 16 | VBXE | 320×240, 8-bit palette indices, 256-color RGB palette |
 
-Anything that is not 2 or 4 is treated as VBXE by the server.
+Anything that is not 2, 4, or 8 is treated as VBXE by the server.
 
-> Historical note: the legacy server defined `GRAPHICS_11 = 8` while the
-> client headers define `GRAPHICS_11 = 0x10` and `VBXE` modes as
-> `0x11/0x12`. Graphics 10/11 were never actually negotiated over the
-> wire; only 2, 4, and 16 are used in practice.
+> Historical note: the legacy server defined `GRAPHICS_11 = 8` but never
+> implemented it; the legacy client sent its internal defines raw
+> (`GRAPHICS_10 = 0x08`, `GRAPHICS_11 = 0x10`), so Graphics 10/11
+> selections landed in the server's VBXE path and broke. Since v2.x the
+> client maps internal modes to wire values explicitly
+> (`graphics_mode_to_wire`), and wire value 8 carries Graphics 11 data.
+> A legacy client that picks Graphics 10 sends `gfx 8` and now receives
+> a well-formed 8807-byte v1.1 packet (hue data shown through the wrong
+> GTIA mode) instead of a VBXE packet it cannot parse.
 
 Source: Graphics 8/9 mode facts verified against the Altirra Hardware
 Reference Manual (GTIA mode 9, PRIOR[7:6]=%01, p.154) and the Atari
 Assembly Language Programmer's Guide via the a8 MCP index.
 
-## YAI image packet, version 1.1 (Graphics 8/9)
+## YAI image packet, version 1.1 (Graphics 8/9/11)
 
 Total 8807 bytes:
 
 | Offset | Size | Value |
 | --- | --- | --- |
 | 0 | 3 | Version `01 01 00` |
-| 3 | 1 | Graphics mode (2 or 4) |
+| 3 | 1 | Graphics mode (2, 4, or 8) |
 | 4 | 1 | Block token `0x03` |
 | 5 | 2 | Payload size, little-endian u16 (`0x2260` = 8800) |
 | 7 | 8800 | Framebuffer: 220 lines × 40 bytes |

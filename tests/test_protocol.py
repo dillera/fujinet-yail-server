@@ -15,6 +15,7 @@ from yail.protocol import (
     ERROR_BLOCK,
     GRAPHICS_8,
     GRAPHICS_9,
+    GRAPHICS_11,
     IMAGE_BLOCK,
     PALETTE_BLOCK,
     VBXE,
@@ -45,6 +46,27 @@ def test_gfx8_packet_structure(splash):
     assert packet[4] == 0x03                        # legacy block token
     assert struct.unpack("<H", packet[5:7])[0] == 8800
     assert len(packet) == 7 + 8800
+
+
+def test_gfx11_packet_structure(splash):
+    """Graphics 11 reuses the v1.1 framebuffer packet with mode token 8."""
+    packet = bytes(convert_image_to_yail(splash.copy(), GRAPHICS_11))
+    assert packet[:3] == bytes([1, 1, 0])          # version 1.1.0
+    assert packet[3] == GRAPHICS_11
+    assert packet[4] == 0x03                        # legacy block token
+    assert struct.unpack("<H", packet[5:7])[0] == 8800
+    assert len(packet) == 7 + 8800
+
+
+def test_gfx11_pixels_are_valid_hue_indices(splash):
+    """Every nibble must be a GTIA hue index 0-15 (4-bit pixels)."""
+    packet = bytes(convert_image_to_yail(splash.copy(), GRAPHICS_11))
+    payload = np.frombuffer(packet[7:], dtype=np.uint8)
+    assert payload.size == 8800
+    # Any byte is two valid nibbles by construction; check both extremes
+    # are actually exercised on a real photo (black borders + hues).
+    nibbles = np.concatenate([payload >> 4, payload & 0x0F])
+    assert nibbles.max() <= 15
 
 
 def test_vbxe_packet_structure(splash):

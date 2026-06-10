@@ -11,6 +11,7 @@ from PIL import Image
 from yail.protocol import (
     GRAPHICS_8,
     GRAPHICS_9,
+    GRAPHICS_11,
     VBXE_H,
     VBXE_W,
     YAIL_H,
@@ -20,6 +21,19 @@ from yail.protocol import (
 )
 
 logger = logging.getLogger(__name__)
+
+# GTIA mode 11 palette: hues 1-15 at luminance 8, sampled from atari800's
+# default NTSC palette (act/default.act, entries hue*16+8).  Index 0 is
+# black, not hue 0: GTIA forces pixel value %0000 to luminance 0 regardless
+# of COLBK (Altirra Hardware Reference Manual p.154).  The client sets
+# COLBK to hue 0 / luminance 8 to match.
+GTIA_HUES_LUM8 = [
+    (0, 0, 0),
+    (255, 197, 29), (255, 152, 44), (255, 112, 110), (234, 81, 235),
+    (224, 94, 255), (190, 96, 255), (113, 131, 255), (138, 132, 255),
+    (85, 182, 255), (97, 208, 112), (33, 217, 27), (134, 217, 34),
+    (161, 176, 52), (213, 181, 67), (225, 147, 68),
+]
 
 
 def prep_image_for_vbxe(image: Image.Image, target_width: int = VBXE_W,
@@ -64,12 +78,12 @@ def fix_aspect(image: Image.Image, crop: bool = False) -> Image.Image:
     else:
         if img_aspect > aspect:  # wider than YAIL aspect
             new_height = int(w * aspect_i)
-            background = Image.new("L", (w, new_height))
+            background = Image.new(image.mode, (w, new_height))
             background.paste(image, (0, int((new_height - h) / 2)))
             image = background
         else:                    # taller than YAIL aspect
             new_width = int(h * aspect)
-            background = Image.new("L", (new_width, h))
+            background = Image.new(image.mode, (new_width, h))
             background.paste(image, (int((new_width - w) / 2), 0))
             image = background
 
@@ -100,6 +114,45 @@ def pack_shades(image: Image.Image) -> np.ndarray:
     return combined.astype("int8")
 
 
+# Pixels darker than this (HSV value, 0-255) become GTIA pixel 0 (black).
+GR11_BLACK_THRESHOLD = 40
+# Brightness the hues are normalized to before matching; roughly the luma of
+# the GTIA_HUES_LUM8 entries, so quantization compares hue rather than light.
+GR11_FLAT_VALUE = 205
+
+
+def pack_hues(image: Image.Image) -> np.ndarray:
+    """Pack an RGB image into Graphics 11 bytes (two 4-bit hue pixels/byte).
+
+    GTIA mode 11 renders every nonzero pixel at one fixed luminance, so
+    brightness cannot be represented.  Quantizing raw RGB against the hue
+    palette makes the ditherer simulate brightness with black speckle and
+    mutes the hues.  Instead: flatten HSV value so only hue/saturation
+    drive the palette match against the 15 hues, then force originally
+    dark pixels to black (pixel value 0, which GTIA renders at lum 0).
+    """
+    yail = image.resize((int(YAIL_W / 4), YAIL_H), Image.LANCZOS)
+
+    hue, sat, val = yail.convert("HSV").split()
+    dark = np.array(val) < GR11_BLACK_THRESHOLD
+    flattened = Image.merge(
+        "HSV", (hue, sat, Image.new("L", yail.size, GR11_FLAT_VALUE))
+    ).convert("RGB")
+
+    palette_image = Image.new("P", (1, 1))
+    palette_image.putpalette([c for rgb in GTIA_HUES_LUM8[1:] for c in rgb])
+    indexed = flattened.quantize(palette=palette_image, dither=Image.FLOYDSTEINBERG)
+
+    im_values = np.array(indexed).astype("uint8") + 1  # palette holds hues 1-15
+    im_values[dark] = 0
+
+    evens = im_values[:, ::2]
+    odds = im_values[:, 1::2]
+
+    combined = (evens << 4) + odds
+    return combined.astype("uint8")
+
+
 def convert_image_to_yail(image: Image.Image, gfx_mode: int) -> bytearray:
     """Convert a PIL image to a complete YAI packet for the given mode."""
     logger.debug(f"Source image size={image.size} mode={image.mode} format={image.format}")
@@ -115,6 +168,12 @@ def convert_image_to_yail(image: Image.Image, gfx_mode: int) -> bytearray:
             image_data = pack_shades(gray)
 
         return build_yai_packet(image_data, gfx_mode)
+
+    if gfx_mode == GRAPHICS_11:
+        rgb = image.convert(mode="RGB")
+        rgb = fix_aspect(rgb)
+        rgb = rgb.resize((YAIL_W, YAIL_H), Image.LANCZOS)
+        return build_yai_packet(pack_hues(rgb), gfx_mode)
 
     # VBXE: 320x240 with a 256-color adaptive palette.
     resized = prep_image_for_vbxe(image, target_width=VBXE_W, target_height=VBXE_H)
