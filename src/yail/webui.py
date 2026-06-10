@@ -253,6 +253,9 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   table { width:100%; border-collapse:collapse; font-size:12.5px; }
   th { text-align:left; color:var(--dim); font-weight:normal; padding:3px 8px 3px 0; }
   td { padding:3px 8px 3px 0; border-top:1px solid var(--line); }
+  /* Fixed-height scroll pane sized to ~10 table rows; newest rows on top. */
+  .scrollpane { max-height:265px; overflow-y:auto; }
+  .scrollpane thead th { position:sticky; top:0; background:var(--panel); }
   label { display:block; color:var(--dim); font-size:11.5px; margin:8px 0 2px; }
   input, select, textarea { width:100%; background:var(--bg); color:var(--text);
       border:1px solid var(--line); border-radius:5px; padding:6px 8px;
@@ -262,9 +265,10 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
            padding:8px 16px; font:inherit; font-weight:bold; cursor:pointer; margin-top:12px; }
   button:hover { filter:brightness(1.12); }
   .row { display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
+  /* ~40 visible log lines (11.5px * 1.5 line-height * 40), newest at the top. */
   #logs { background:var(--bg); border:1px solid var(--line); border-radius:5px;
-          padding:8px 10px; height:300px; overflow-y:auto; font-size:11.5px;
-          white-space:pre-wrap; word-break:break-all; }
+          padding:8px 10px; height:690px; overflow-y:auto; font-size:11.5px;
+          line-height:1.5; white-space:pre-wrap; word-break:break-all; }
   .lv-ERROR,.lv-CRITICAL { color:var(--err); }
   .lv-WARNING { color:var(--warn); }
   .lv-INFO { color:var(--text); }
@@ -319,16 +323,18 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     <div>
       <section>
         <h2>Recent Images</h2>
-        <table><thead><tr>
-          <th>time</th><th>client</th><th>source</th><th>target</th><th>ok</th><th>ms</th>
-        </tr></thead><tbody id="images"></tbody></table>
-      </section>
-      <section>
-        <h2>Logs</h2>
-        <div id="logs"></div>
+        <div class="scrollpane">
+          <table><thead><tr>
+            <th>time</th><th>client</th><th>source</th><th>target</th><th>ok</th><th>ms</th>
+          </tr></thead><tbody id="images"></tbody></table>
+        </div>
       </section>
     </div>
   </div>
+  <section>
+    <h2>Logs <span class="dim" style="text-transform:none">(newest first)</span></h2>
+    <div id="logs"></div>
+  </section>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -374,13 +380,11 @@ async function refreshStats() {
 }
 
 async function refreshLogs() {
-  const data = await getJSON("/api/logs?n=200");
-  const el = $("logs");
-  const stick = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
-  el.innerHTML = data.logs.map(l =>
+  const data = await getJSON("/api/logs?n=500");
+  // Newest first: latest line stays pinned at the top, older lines push down.
+  $("logs").innerHTML = data.logs.slice().reverse().map(l =>
       `<div class="lv-${l.level}">${fmtTime(l.ts)} ${l.level.padEnd(7)} ${esc(l.message)}</div>`
     ).join("");
-  if (stick) el.scrollTop = el.scrollHeight;
 }
 
 async function loadConfig() {
