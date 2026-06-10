@@ -21,11 +21,12 @@ def gen_config(monkeypatch):
     return ImageGenConfig()
 
 
-def run_session(commands: bytes, gen_config, filenames=None, timeout=10.0) -> bytes:
+def run_session(commands: bytes, gen_config, filenames=None, timeout=10.0,
+                files_enabled=True) -> bytes:
     """Run a ClientSession against a socketpair; return everything it sent."""
     server_sock, client_sock = socket.socketpair()
-    session = ClientSession(server_sock, 1, ServerConfig(), gen_config,
-                            filenames or [])
+    session = ClientSession(server_sock, 1, ServerConfig(files_enabled=files_enabled),
+                            gen_config, filenames or [])
 
     def run():
         try:
@@ -89,6 +90,16 @@ def test_files_with_no_files_sends_error_packet(gen_config):
     assert received[5] == ERROR_BLOCK
     msg_len = struct.unpack("<I", received[6:10])[0]
     assert received[10:10 + msg_len] == b"No image files available"
+
+
+def test_files_disabled_sends_error_packet(gen_config):
+    # Even with files indexed, the 'files' command requires explicit opt-in.
+    received = run_session(b"files quit", gen_config, filenames=[TEST_IMAGE],
+                           files_enabled=False)
+    assert received[:3] == bytes([1, 4, 0])
+    assert received[5] == ERROR_BLOCK
+    msg_len = struct.unpack("<I", received[6:10])[0]
+    assert received[10:10 + msg_len] == b"File serving is disabled on this server"
 
 
 def test_next_without_mode_sends_error(gen_config):

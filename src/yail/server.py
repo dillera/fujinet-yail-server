@@ -132,6 +132,9 @@ class ClientSession:
         self.send_text("Could not load any image", is_error=True)
 
     def stream_random_from_files(self) -> None:
+        if not self.server_config.files_enabled:
+            self.send_text("File serving is disabled on this server", is_error=True)
+            return
         if not self.filenames:
             self.send_text("No image files available", is_error=True)
             return

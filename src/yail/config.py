@@ -21,6 +21,9 @@ class ServerConfig:
     extensions: list[str] = field(default_factory=lambda: list(DEFAULT_EXTENSIONS))
     camera: str | None = None
     enable_camera: bool = False
+    # Local file serving is opt-in: the 'files' command only works when this
+    # is true AND an explicit folder path was configured (CLI, env, or UI).
+    files_enabled: bool = False
 
 
 class ImageGenConfig:

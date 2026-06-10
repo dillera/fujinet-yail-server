@@ -122,6 +122,7 @@ class AdminRequestHandler(BaseHTTPRequestHandler):
             "active_connections": snap["active_connections"],
             "total_connections": snap["total_connections"],
             "local_files": len(ctx.filenames),
+            "files_enabled": ctx.server_config.files_enabled,
             "camera_enabled": ctx.server_config.enable_camera,
             "search_backend": f"ddgs {ddgs_version}",
             "openai_key_set": bool(ctx.gen_config.api_key),
@@ -130,7 +131,11 @@ class AdminRequestHandler(BaseHTTPRequestHandler):
 
     def api_config(self) -> dict:
         gen = self.context.gen_config
+        server = self.context.server_config
         return {
+            "files_enabled": server.files_enabled,
+            "files_path": server.paths[0] if server.paths else "",
+            "files_count": len(self.context.filenames),
             "model": gen.model,
             "size": gen.size,
             "quality": gen.quality,
@@ -195,6 +200,40 @@ class AdminRequestHandler(BaseHTTPRequestHandler):
             logger.info("Gemini API key updated")
             applied.append("gemini_api_key")
             to_persist["GEMINI_API_KEY"] = gemini_key
+
+        server = self.context.server_config
+        if "files_path" in payload:
+            path = str(payload["files_path"]).strip()
+            current = server.paths[0] if server.paths else ""
+            if path != current:
+                if path and not (os.path.isabs(path) and os.path.isdir(path)):
+                    errors.append(f"files_path must be an existing absolute "
+                                  f"folder path: {path!r}")
+                else:
+                    from yail.files import collect_files
+                    new_files = (collect_files([path], server.extensions)
+                                 if path else [])
+                    # Mutate in place: the server and active sessions share
+                    # this list object.
+                    self.context.filenames[:] = new_files
+                    server.paths = [path] if path else []
+                    if not path:
+                        server.files_enabled = False
+                    applied.append("files_path")
+                    to_persist["FILES_PATH"] = path
+
+        if "files_enabled" in payload:
+            enabled = bool(payload["files_enabled"])
+            if enabled and not server.paths:
+                errors.append("cannot enable file serving without a folder path")
+            elif enabled != server.files_enabled:
+                server.files_enabled = enabled
+                logger.info(f"Local file serving {'enabled' if enabled else 'disabled'} "
+                            f"via web UI")
+                applied.append("files_enabled")
+            # Always persist the flag alongside other persisted file settings
+            # so the choice survives restarts.
+            to_persist["FILES_ENABLED"] = ("true" if server.files_enabled else "false")
 
         persisted = False
         if payload.get("persist") and to_persist:
@@ -305,6 +344,12 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
             <div><label>Gemini API key <span class="dim" id="cur_gkey"></span></label>
                  <input name="gemini_api_key" id="cfg_gkey" placeholder="leave blank to keep"></div>
           </div>
+          <label>Local files folder <span class="dim" id="cur_files"></span></label>
+          <input id="cfg_fpath" placeholder="absolute folder path (blank = no local files)">
+          <div class="persist">
+            <input type="checkbox" id="cfg_fenabled">
+            <span>enable local file serving (the <b>files</b> command)</span>
+          </div>
           <div class="persist">
             <input type="checkbox" id="cfg_persist" checked>
             <span>persist to <span id="envPath">.env</span></span>
@@ -358,7 +403,8 @@ async function refreshStatus() {
       card("Uptime", fmtAge(s.uptime_seconds)) +
       card("Active clients", s.active_connections) +
       card("Total conns", s.total_connections) +
-      card("Local files", s.local_files) +
+      card("Local files", s.files_enabled ? s.local_files : "off",
+           s.files_enabled ? "" : "dim") +
       card("OpenAI key", s.openai_key_set ? "set" : "missing", s.openai_key_set ? "ok" : "bad") +
       card("Gemini key", s.gemini_key_set ? "set" : "missing", s.gemini_key_set ? "ok" : "bad");
 }
@@ -394,6 +440,9 @@ async function loadConfig() {
   $("cfg_prompt").value = c.system_prompt;
   $("cur_okey").textContent = c.openai_api_key ? `(${c.openai_api_key})` : "(not set)";
   $("cur_gkey").textContent = c.gemini_api_key ? `(${c.gemini_api_key})` : "(not set)";
+  $("cfg_fpath").value = c.files_path;
+  $("cfg_fenabled").checked = c.files_enabled;
+  $("cur_files").textContent = `(${c.files_count} files indexed)`;
   $("envPath").textContent = c.env_file;
   cfgLoaded = true;
 }
@@ -405,6 +454,7 @@ async function saveConfig(ev) {
     quality: $("cfg_quality").value, style: $("cfg_style").value,
     system_prompt: $("cfg_prompt").value,
     openai_api_key: $("cfg_okey").value, gemini_api_key: $("cfg_gkey").value,
+    files_path: $("cfg_fpath").value, files_enabled: $("cfg_fenabled").checked,
     persist: $("cfg_persist").checked,
   };
   const r = await fetch("/api/config",

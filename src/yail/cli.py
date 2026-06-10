@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from yail import __version__
 from yail.camera import init_camera, shutdown_camera
 from yail.config import DEFAULT_EXTENSIONS, DEFAULT_PORT, ImageGenConfig, ServerConfig
+from yail.files import collect_files
 from yail.server import YailServer
 from yail.stats import install_log_buffer
 from yail.webui import DEFAULT_UI_PORT, WebUIContext, start_webui
@@ -18,29 +19,6 @@ from yail.webui import DEFAULT_UI_PORT, WebUIContext, start_webui
 logger = logging.getLogger("yail")
 
 LOG_LEVELS = ["DEBUG", "INFO", "WARN", "ERROR", "CRITICAL"]
-
-
-def collect_files(paths: list[str], extensions: list[str]) -> list[str]:
-    """Collect image file paths from directories and/or explicit file lists."""
-    extensions = [ext.lower() if ext.startswith(".") else f".{ext.lower()}"
-                  for ext in extensions]
-    filenames: list[str] = []
-
-    def consider(file_path: str) -> None:
-        _, ext = os.path.splitext(file_path)
-        if ext.lower() in extensions:
-            logger.info(f"Adding file: {file_path}")
-            filenames.append(file_path)
-
-    for path in paths:
-        if os.path.isdir(path):
-            for root, _, files in os.walk(path):
-                for file in files:
-                    consider(os.path.join(root, file))
-        else:
-            consider(path)
-
-    return filenames
 
 
 def log_network_info() -> None:
@@ -153,18 +131,34 @@ def main(argv: list[str] | None = None) -> int:
         gen_config.set_style(args.openai_style)
     logger.info(f"Image generation: {gen_config}")
 
+    # Local file serving is opt-in: --paths on the CLI is an explicit choice;
+    # otherwise FILES_PATH + FILES_ENABLED=true from the env file (managed by
+    # the web UI) enable it. With neither, the 'files' command is disabled.
+    env_files_path = os.environ.get("FILES_PATH", "").strip()
+    env_files_enabled = os.environ.get("FILES_ENABLED", "").strip().lower() in ("1", "true", "yes")
+    if args.paths:
+        paths, files_enabled = args.paths, True
+    elif env_files_path:
+        paths, files_enabled = [env_files_path], env_files_enabled
+    else:
+        paths, files_enabled = [], False
+
     server_config = ServerConfig(
         host=args.host,
         port=args.port if args.port is not None else int(os.environ.get("YAIL_PORT", DEFAULT_PORT)),
-        paths=args.paths,
+        paths=paths,
         extensions=args.extensions,
         camera=args.camera if args.camera else None,
         enable_camera=args.camera is not None,
+        files_enabled=files_enabled,
     )
 
-    filenames = collect_files(server_config.paths, server_config.extensions)
+    filenames = collect_files(server_config.paths, server_config.extensions) if paths else []
     if filenames:
-        logger.info(f"Serving {len(filenames)} local image files")
+        logger.info(f"Local file serving {'ENABLED' if files_enabled else 'disabled'}: "
+                    f"{len(filenames)} files from {', '.join(paths)}")
+    else:
+        logger.info("Local file serving disabled (no folder configured)")
 
     if server_config.enable_camera:
         if not init_camera(server_config.camera):

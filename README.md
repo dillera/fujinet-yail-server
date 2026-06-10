@@ -111,6 +111,18 @@ set unmasked API keys. To reach a remote server's UI, prefer an SSH tunnel
 JSON endpoints behind the dashboard: `/api/status`, `/api/config`
 (GET/POST), `/api/logs`, `/api/stats`.
 
+### Local file serving
+
+The `files` command is **disabled by default**: the server never serves
+local images unless explicitly configured. Enable it one of three ways:
+
+- pass `--paths /folder` on the command line (explicit opt-in), or
+- set `FILES_PATH=/absolute/folder` and `FILES_ENABLED=true` in the env
+  file, or
+- set the folder path and tick "enable local file serving" in the web UI
+  (persisting writes the two env vars above, and the new folder is
+  re-indexed live without a restart).
+
 ## Deployment
 
 The `deployment` directory deploys the server as a systemd service on Linux:

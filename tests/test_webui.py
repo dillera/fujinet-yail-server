@@ -22,7 +22,7 @@ def webui(tmp_path, monkeypatch):
                            env_path=str(env_path))
     httpd = start_webui("127.0.0.1", 0, context)
     port = httpd.server_address[1]
-    yield f"http://127.0.0.1:{port}", gen_config, env_path
+    yield f"http://127.0.0.1:{port}", gen_config, env_path, context
     httpd.shutdown()
 
 
@@ -46,7 +46,7 @@ def test_mask_key():
 
 
 def test_dashboard_served(webui):
-    base, _, _ = webui
+    base, _, _, _ = webui
     with urllib.request.urlopen(base + "/", timeout=5) as resp:
         body = resp.read().decode()
     assert resp.status == 200
@@ -54,7 +54,7 @@ def test_dashboard_served(webui):
 
 
 def test_status(webui):
-    base, _, _ = webui
+    base, _, _, _ = webui
     status = get_json(base + "/api/status")
     assert status["version"] == __version__
     assert status["local_files"] == 2
@@ -63,7 +63,7 @@ def test_status(webui):
 
 
 def test_config_get_masks_keys(webui):
-    base, _, _ = webui
+    base, _, _, _ = webui
     config = get_json(base + "/api/config")
     assert config["model"] == "dall-e-3"
     assert config["openai_api_key"] == "sk-...abcd"
@@ -71,7 +71,7 @@ def test_config_get_masks_keys(webui):
 
 
 def test_config_post_applies_and_persists(webui):
-    base, gen_config, env_path = webui
+    base, gen_config, env_path, _ = webui
     result = post_json(base + "/api/config", {
         "model": "gpt-image-1", "size": "1536x1024", "quality": "high",
         "gemini_api_key": "gm-key-9876543210", "persist": True,
@@ -88,14 +88,14 @@ def test_config_post_applies_and_persists(webui):
 
 
 def test_config_post_rejects_invalid(webui):
-    base, gen_config, _ = webui
+    base, gen_config, _, _ = webui
     result = post_json(base + "/api/config", {"size": "999x999"})
     assert result["errors"]
     assert gen_config.size != "999x999"
 
 
 def test_stats_reflects_sessions_and_images(webui):
-    base, _, _ = webui
+    base, _, _, _ = webui
     STATS.session_started(9001, "10.0.0.5:4242")
     STATS.session_update(9001, mode="search", last_command='search "cats"')
     STATS.image_event(9001, "search", "http://example.com/cat.jpg", 2, True, 0.25)
@@ -113,7 +113,7 @@ def test_stats_reflects_sessions_and_images(webui):
 
 
 def test_logs_endpoint(webui):
-    base, _, _ = webui
+    base, _, _, _ = webui
     import logging
     from yail.stats import install_log_buffer
     install_log_buffer()
@@ -125,9 +125,61 @@ def test_logs_endpoint(webui):
 
 
 def test_unknown_route_404(webui):
-    base, _, _ = webui
+    base, _, _, _ = webui
     try:
         urllib.request.urlopen(base + "/api/nope", timeout=5)
         assert False, "expected 404"
     except urllib.error.HTTPError as e:
         assert e.code == 404
+
+
+def test_files_config_set_path_and_enable(webui, tmp_path):
+    base, _, env_path, context = webui
+    folder = tmp_path / "imgs"
+    folder.mkdir()
+    (folder / "one.jpg").write_bytes(b"x")
+    (folder / "two.png").write_bytes(b"x")
+    (folder / "skip.txt").write_bytes(b"x")
+
+    result = post_json(base + "/api/config", {
+        "files_path": str(folder), "files_enabled": True, "persist": True,
+    })
+    assert result["errors"] == []
+    assert "files_path" in result["applied"]
+    assert "files_enabled" in result["applied"]
+    assert context.server_config.files_enabled is True
+    assert sorted(context.filenames) == [str(folder / "one.jpg"),
+                                         str(folder / "two.png")]
+    env_text = env_path.read_text()
+    assert "FILES_ENABLED" in env_text and "true" in env_text
+    assert str(folder) in env_text
+
+
+def test_files_config_rejects_bad_path(webui):
+    base, _, _, context = webui
+    result = post_json(base + "/api/config",
+                       {"files_path": "relative/or/missing"})
+    assert any("files_path" in e for e in result["errors"])
+    assert context.filenames == ["a.jpg", "b.png"]
+
+
+def test_files_enable_requires_path(webui):
+    base, _, _, context = webui
+    result = post_json(base + "/api/config", {"files_enabled": True})
+    assert any("folder path" in e for e in result["errors"])
+    assert context.server_config.files_enabled is False
+
+
+def test_files_clearing_path_disables(webui, tmp_path):
+    base, _, _, context = webui
+    folder = tmp_path / "imgs2"
+    folder.mkdir()
+    (folder / "pic.jpg").write_bytes(b"x")
+    post_json(base + "/api/config",
+              {"files_path": str(folder), "files_enabled": True})
+    assert context.server_config.files_enabled is True
+
+    result = post_json(base + "/api/config", {"files_path": ""})
+    assert result["errors"] == []
+    assert context.filenames == []
+    assert context.server_config.files_enabled is False
