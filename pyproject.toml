@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yail-server"
+version = "2.0.0"
+description = "YAIL (Yet Another Image Loader) image server for FujiNet-equipped Atari 8-bit computers"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    "pillow>=10.0",
+    "numpy>=1.26",
+    "requests>=2.30",
+    "ddgs>=9.0",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+gen = [
+    "openai>=1.0",
+    "google-genai>=1.0",
+]
+camera = [
+    "pygame>=2.5",
+]
+netinfo = [
+    "netifaces>=0.11",
+]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+yail-server = "yail.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools.package-data]
+yail = ["*.act"]
